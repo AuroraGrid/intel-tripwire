@@ -7,12 +7,18 @@ on:
       - agent/aurora-platform-v2
     paths:
       - "aurora-live/storage.py"
+      - "aurora-live/operations.py"
+      - "aurora-live/delivery.py"
+      - "aurora-live/feeds.py"
       - "aurora-live/platform_api.py"
       - "aurora-live/tests/test_platform.py"
       - ".github/workflows/aurora-platform-ci.yml"
   pull_request:
     paths:
       - "aurora-live/storage.py"
+      - "aurora-live/operations.py"
+      - "aurora-live/delivery.py"
+      - "aurora-live/feeds.py"
       - "aurora-live/platform_api.py"
       - "aurora-live/tests/test_platform.py"
       - ".github/workflows/aurora-platform-ci.yml"
@@ -35,7 +41,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Compile platform
-        run: python -m py_compile aurora-live/storage.py aurora-live/platform_api.py
+        run: python -m py_compile aurora-live/storage.py aurora-live/operations.py aurora-live/delivery.py aurora-live/feeds.py aurora-live/platform_api.py
       - name: Run platform tests
         run: python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
       - name: Smoke-test platform API
@@ -57,6 +63,9 @@ jobs:
           else:
               raise SystemExit("platform API did not become healthy")
           PY
+      - name: Show server log on failure
+        if: failure()
+        run: cat /tmp/aurora-platform.log || true
       - name: Stop platform API
         if: always()
         run: |
