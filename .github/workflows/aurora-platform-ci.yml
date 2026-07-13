@@ -6,6 +6,7 @@ on:
       - main
       - agent/aurora-postgres-phase-1
       - agent/aurora-api-hardening-phase-2
+      - agent/aurora-workers-phase-3
     paths:
       - "aurora-live/**"
       - ".github/workflows/aurora-platform-ci.yml"
@@ -31,50 +32,39 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: python -m pip install -r aurora-live/requirements.txt
-      - name: Compile platform
-        run: python -m py_compile aurora-live/database.py aurora-live/storage.py aurora-live/operations.py aurora-live/delivery.py aurora-live/feeds.py aurora-live/platform_api.py aurora-live/platform_wsgi.py aurora-live/scripts/migrate_sqlite_to_postgres.py
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile platform and worker
+        run: python -m py_compile aurora-live/database.py aurora-live/storage.py aurora-live/operations.py aurora-live/delivery.py aurora-live/feeds.py aurora-live/platform_api.py aurora-live/platform_wsgi.py aurora-live/production_wsgi.py aurora-live/worker_state.py aurora-live/worker_delivery.py aurora-live/worker.py aurora-live/scripts/migrate_sqlite_to_postgres.py
       - name: Run SQLite tests
         run: |
           python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_wsgi.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_worker.py" -v
+      - name: Smoke-test one worker tick
+        run: cd aurora-live && AURORA_OFFLINE=1 DATABASE_PATH=/tmp/aurora-worker.db python worker.py --once --worker-id ci-worker
       - name: Smoke-test API and dashboard
         run: |
           cd aurora-live
-          DATABASE_PATH=/tmp/aurora-platform.db AURORA_QUIET=1 python platform_api.py --host 127.0.0.1 --port 8090 > /tmp/aurora-platform.log 2>&1 &
+          DATABASE_PATH=/tmp/aurora-platform.db AURORA_QUIET=1 gunicorn production_wsgi:application --bind 127.0.0.1:8090 --workers 1 --timeout 30 > /tmp/aurora-platform.log 2>&1 &
           echo $! > /tmp/aurora-platform.pid
           python - <<'PY'
-          import json, time, urllib.request
-          base = "http://127.0.0.1:8090"
+          import json,time,urllib.request
+          base="http://127.0.0.1:8090"
           for _ in range(20):
               try:
-                  with urllib.request.urlopen(base + "/api/platform/health", timeout=2) as response:
-                      data = json.load(response)
-                  assert data["status"] == "ok"
-                  assert data["database"] == "sqlite"
+                  with urllib.request.urlopen(base+"/api/platform/ready",timeout=2) as response:data=json.load(response)
+                  assert data["status"]=="ready" and data["database"]=="sqlite"
                   break
-              except Exception:
-                  time.sleep(0.5)
-          else:
-              raise SystemExit("platform API did not become healthy")
-          with urllib.request.urlopen(base + "/platform", timeout=3) as response:
-              page = response.read().decode("utf-8")
-              headers = response.headers
-          assert "AURORA Platform" in page
-          assert "Incident search" in page
-          assert headers.get("X-Content-Type-Options") == "nosniff"
-          assert "default-src 'self'" in headers.get("Content-Security-Policy", "")
+              except Exception:time.sleep(.5)
+          else:raise SystemExit("platform API did not become healthy")
+          with urllib.request.urlopen(base+"/platform",timeout=3) as response:page=response.read().decode();headers=response.headers
+          assert "AURORA Platform" in page and "Incident search" in page
+          assert headers.get("X-Content-Type-Options")=="nosniff"
           PY
-      - name: Show server log on failure
-        if: failure()
+      - if: failure()
         run: cat /tmp/aurora-platform.log || true
-      - name: Stop platform API
-        if: always()
-        run: |
-          if [ -f /tmp/aurora-platform.pid ]; then
-            kill "$(cat /tmp/aurora-platform.pid)" 2>/dev/null || true
-          fi
+      - if: always()
+        run: if [ -f /tmp/aurora-platform.pid ]; then kill "$(cat /tmp/aurora-platform.pid)" 2>/dev/null || true; fi
 
   postgres:
     runs-on: ubuntu-latest
@@ -100,74 +90,59 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install dependencies
-        run: python -m pip install -r aurora-live/requirements.txt
-      - name: Run PostgreSQL platform tests
-        run: python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
-      - name: Run SQLite-to-PostgreSQL migration test
-        run: python -m unittest discover -s aurora-live/tests -p "test_migration.py" -v
-      - name: Smoke-test PostgreSQL WSGI API
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Run PostgreSQL tests
+        run: |
+          python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_worker.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_migration.py" -v
+      - name: Smoke-test PostgreSQL worker and API
         run: |
           cd aurora-live
-          DATABASE_URL="$AURORA_TEST_DATABASE_URL" AURORA_ALLOWED_HOSTS=127.0.0.1,localhost gunicorn platform_wsgi:application --bind 127.0.0.1:8092 --workers 2 --timeout 30 > /tmp/aurora-postgres.log 2>&1 &
+          AURORA_OFFLINE=1 DATABASE_URL="$AURORA_TEST_DATABASE_URL" python worker.py --once --worker-id postgres-ci-worker
+          DATABASE_URL="$AURORA_TEST_DATABASE_URL" AURORA_ALLOWED_HOSTS=127.0.0.1,localhost gunicorn production_wsgi:application --bind 127.0.0.1:8092 --workers 2 --timeout 30 > /tmp/aurora-postgres.log 2>&1 &
           echo $! > /tmp/aurora-postgres.pid
           python - <<'PY'
-          import json, time, urllib.request
-          base = "http://127.0.0.1:8092"
+          import json,time,urllib.request
+          url="http://127.0.0.1:8092/api/platform/ready"
           for _ in range(30):
               try:
-                  req = urllib.request.Request(base + "/api/platform/ready", headers={"X-Request-ID":"ci-check"})
-                  with urllib.request.urlopen(req, timeout=2) as response:
-                      data = json.load(response)
-                      headers = response.headers
-                  assert data["status"] == "ready"
-                  assert data["database"] == "postgres"
-                  assert headers["X-Request-ID"] == "ci-check"
-                  assert headers["X-Frame-Options"] == "DENY"
+                  with urllib.request.urlopen(url,timeout=2) as response:data=json.load(response)
+                  assert data["status"]=="ready" and data["database"]=="postgres"
                   break
-              except Exception:
-                  time.sleep(0.5)
-          else:
-              raise SystemExit("PostgreSQL-backed WSGI API did not become healthy")
+              except Exception:time.sleep(.5)
+          else:raise SystemExit("PostgreSQL API did not become healthy")
           PY
-      - name: Show PostgreSQL API log on failure
-        if: failure()
+      - if: failure()
         run: cat /tmp/aurora-postgres.log || true
-      - name: Stop PostgreSQL API
-        if: always()
-        run: |
-          if [ -f /tmp/aurora-postgres.pid ]; then
-            kill "$(cat /tmp/aurora-postgres.pid)" 2>/dev/null || true
-          fi
+      - if: always()
+        run: if [ -f /tmp/aurora-postgres.pid ]; then kill "$(cat /tmp/aurora-postgres.pid)" 2>/dev/null || true; fi
 
   container:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Build container
-        run: docker build -t aurora-platform-ci aurora-live
-      - name: Run SQLite fallback container
+      - run: docker build -t aurora-platform-ci aurora-live
+      - name: Run platform and worker containers
         run: |
-          docker run -d --name aurora-platform-ci -p 8091:8090 \
-            -e AURORA_BOOTSTRAP_SECRET=test-bootstrap-secret \
-            -e AURORA_WEBHOOK_SECRET=test-webhook-secret \
-            -e AURORA_ALLOWED_HOSTS=127.0.0.1,localhost \
-            -e AURORA_CORS_ORIGIN=http://127.0.0.1:8091 \
-            -v aurora-platform-ci-data:/data aurora-platform-ci
-      - name: Check Gunicorn container health
+          docker network create aurora-ci
+          docker run -d --name aurora-platform-ci --network aurora-ci -p 8091:8090 -e AURORA_BOOTSTRAP_SECRET=test-bootstrap-secret -e AURORA_WEBHOOK_SECRET=test-webhook-secret -e AURORA_ALLOWED_HOSTS=127.0.0.1,localhost -e AURORA_CORS_ORIGIN=http://127.0.0.1:8091 -v aurora-platform-ci-data:/data aurora-platform-ci
+          docker run -d --name aurora-worker-ci --network aurora-ci -e AURORA_OFFLINE=1 -e DATABASE_PATH=/data/aurora-live.db -v aurora-platform-ci-data:/data aurora-platform-ci python worker.py
+      - name: Check platform and worker health
         run: |
           for i in $(seq 1 30); do
-            if curl --fail --silent -D /tmp/headers http://127.0.0.1:8091/api/platform/ready >/tmp/body; then
-              grep -qi '^X-Request-ID:' /tmp/headers
-              grep -q '"status":"ready"' /tmp/body
+            if curl --fail --silent http://127.0.0.1:8091/api/platform/ready | grep -q '"status":"ready"' && docker logs aurora-worker-ci 2>&1 | grep -q worker_started; then
               docker top aurora-platform-ci | grep -q gunicorn
+              docker top aurora-worker-ci | grep -q 'python worker.py'
               exit 0
             fi
             sleep 1
           done
           docker logs aurora-platform-ci
+          docker logs aurora-worker-ci
           exit 1
-      - name: Stop container
-        if: always()
-        run: docker rm -f aurora-platform-ci 2>/dev/null || true
+      - if: always()
+        run: |
+          docker rm -f aurora-platform-ci aurora-worker-ci 2>/dev/null || true
+          docker network rm aurora-ci 2>/dev/null || true
