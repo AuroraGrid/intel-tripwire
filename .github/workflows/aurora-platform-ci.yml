@@ -1,0 +1,74 @@
+name: AURORA Platform CI
+
+on:
+  push:
+    branches:
+      - main
+      - agent/aurora-platform-v2
+    paths:
+      - "aurora-live/storage.py"
+      - "aurora-live/operations.py"
+      - "aurora-live/delivery.py"
+      - "aurora-live/feeds.py"
+      - "aurora-live/platform_api.py"
+      - "aurora-live/tests/test_platform.py"
+      - ".github/workflows/aurora-platform-ci.yml"
+  pull_request:
+    paths:
+      - "aurora-live/storage.py"
+      - "aurora-live/operations.py"
+      - "aurora-live/delivery.py"
+      - "aurora-live/feeds.py"
+      - "aurora-live/platform_api.py"
+      - "aurora-live/tests/test_platform.py"
+      - ".github/workflows/aurora-platform-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile platform
+        run: python -m py_compile aurora-live/storage.py aurora-live/operations.py aurora-live/delivery.py aurora-live/feeds.py aurora-live/platform_api.py
+      - name: Run platform tests
+        run: python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
+      - name: Smoke-test platform API
+        run: |
+          cd aurora-live
+          DATABASE_PATH=/tmp/aurora-platform.db AURORA_QUIET=1 python platform_api.py --host 127.0.0.1 --port 8090 > /tmp/aurora-platform.log 2>&1 &
+          echo $! > /tmp/aurora-platform.pid
+          python - <<'PY'
+          import json, time, urllib.request
+          url = "http://127.0.0.1:8090/api/platform/health"
+          for _ in range(20):
+              try:
+                  with urllib.request.urlopen(url, timeout=2) as response:
+                      data = json.load(response)
+                  assert data["status"] == "ok"
+                  break
+              except Exception:
+                  time.sleep(0.5)
+          else:
+              raise SystemExit("platform API did not become healthy")
+          PY
+      - name: Show server log on failure
+        if: failure()
+        run: cat /tmp/aurora-platform.log || true
+      - name: Stop platform API
+        if: always()
+        run: |
+          if [ -f /tmp/aurora-platform.pid ]; then
+            kill "$(cat /tmp/aurora-platform.pid)" 2>/dev/null || true
+          fi
