@@ -39,8 +39,10 @@ class IdentityTests(unittest.TestCase):
     def test_workspace_token_isolation_and_revocation(self):
         second = self.store.identity.create_workspace(self.owner_context, "Second Workspace")
         self.store.identity.add_membership(self.owner_context, self.viewer["id"], "analyst", second["id"])
-        token_record, token_secret = self.store.identity.issue_token(self.owner_context, self.viewer["id"], "second-workspace", workspace_id=second["id"])
-        second_context = self.store.auth(token_secret)
+        viewer_token_record, viewer_secret = self.store.identity.issue_token(self.owner_context, self.viewer["id"], "second-workspace", workspace_id=second["id"])
+        owner_token_record, owner_secret = self.store.identity.issue_token(self.owner_context, self.owner["id"], "second-owner", workspace_id=second["id"])
+
+        second_context = self.store.auth(viewer_secret)
         self.assertEqual(second_context["workspace_id"], second["id"])
         self.store.add_watchlist(self.viewer["id"], {"name": "Second only", "query": "port"})
         self.assertEqual(len(self.store.watchlists(self.viewer["id"])), 1)
@@ -51,10 +53,12 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(self.store.watchlists(self.viewer["id"]), [])
 
         CURRENT_WORKSPACE.set(None)
-        self.owner_context = self.store.auth(self.owner_token)
-        self.store.identity.revoke(self.owner_context, token_record["id"])
+        second_owner = self.store.auth(owner_secret)
+        self.assertEqual(second_owner["workspace_id"], second["id"])
+        self.store.identity.revoke(second_owner, viewer_token_record["id"])
         CURRENT_WORKSPACE.set(None)
-        self.assertIsNone(self.store.auth(token_secret))
+        self.assertIsNone(self.store.auth(viewer_secret))
+        self.assertTrue(owner_token_record["id"])
 
     def test_viewer_cannot_administer_memberships(self):
         CURRENT_WORKSPACE.set(None)
