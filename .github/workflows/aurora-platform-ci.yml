@@ -4,8 +4,7 @@ on:
   push:
     branches:
       - main
-      - agent/aurora-platform-v2
-      - agent/aurora-production-v3
+      - agent/aurora-postgres-phase-1
     paths:
       - "aurora-live/**"
       - ".github/workflows/aurora-platform-ci.yml"
@@ -19,7 +18,7 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  sqlite:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -31,9 +30,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
       - name: Compile platform
-        run: python -m py_compile aurora-live/storage.py aurora-live/operations.py aurora-live/delivery.py aurora-live/feeds.py aurora-live/platform_api.py
-      - name: Run platform tests
+        run: python -m py_compile aurora-live/database.py aurora-live/storage.py aurora-live/operations.py aurora-live/delivery.py aurora-live/feeds.py aurora-live/platform_api.py aurora-live/scripts/migrate_sqlite_to_postgres.py
+      - name: Run SQLite tests
         run: python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
       - name: Smoke-test API and dashboard
         run: |
@@ -48,6 +49,7 @@ jobs:
                   with urllib.request.urlopen(base + "/api/platform/health", timeout=2) as response:
                       data = json.load(response)
                   assert data["status"] == "ok"
+                  assert data["database"] == "sqlite"
                   break
               except Exception:
                   time.sleep(0.5)
@@ -71,6 +73,66 @@ jobs:
             kill "$(cat /tmp/aurora-platform.pid)" 2>/dev/null || true
           fi
 
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: aurora_test
+          POSTGRES_USER: aurora
+          POSTGRES_PASSWORD: aurora-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aurora -d aurora_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      AURORA_TEST_DATABASE_URL: postgresql://aurora:aurora-test-password@127.0.0.1:5432/aurora_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+      - name: Run PostgreSQL platform tests
+        run: python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
+      - name: Run SQLite-to-PostgreSQL migration test
+        run: python -m unittest discover -s aurora-live/tests -p "test_migration.py" -v
+      - name: Smoke-test PostgreSQL API
+        run: |
+          cd aurora-live
+          DATABASE_URL="$AURORA_TEST_DATABASE_URL" AURORA_QUIET=1 python platform_api.py --host 127.0.0.1 --port 8092 > /tmp/aurora-postgres.log 2>&1 &
+          echo $! > /tmp/aurora-postgres.pid
+          python - <<'PY'
+          import json, time, urllib.request
+          url = "http://127.0.0.1:8092/api/platform/health"
+          for _ in range(30):
+              try:
+                  with urllib.request.urlopen(url, timeout=2) as response:
+                      data = json.load(response)
+                  assert data["status"] == "ok"
+                  assert data["database"] == "postgres"
+                  break
+              except Exception:
+                  time.sleep(0.5)
+          else:
+              raise SystemExit("PostgreSQL-backed API did not become healthy")
+          PY
+      - name: Show PostgreSQL API log on failure
+        if: failure()
+        run: cat /tmp/aurora-postgres.log || true
+      - name: Stop PostgreSQL API
+        if: always()
+        run: |
+          if [ -f /tmp/aurora-postgres.pid ]; then
+            kill "$(cat /tmp/aurora-postgres.pid)" 2>/dev/null || true
+          fi
+
   container:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -78,7 +140,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build container
         run: docker build -t aurora-platform-ci aurora-live
-      - name: Run container
+      - name: Run SQLite fallback container
         run: |
           docker run -d --name aurora-platform-ci -p 8091:8090 \
             -e AURORA_BOOTSTRAP_SECRET=test-bootstrap-secret \
