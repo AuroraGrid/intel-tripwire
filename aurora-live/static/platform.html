@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AURORA Platform</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#121a2e;--line:#25314d;--text:#edf2ff;--muted:#93a4c6;--accent:#66d9ef;--warn:#f6c85f;--bad:#ff6b6b;--good:#62d394}*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui;background:var(--bg);color:var(--text)}header{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,16,32,.96);z-index:2}h1,h2,h3{margin:0}.muted{color:var(--muted)}main{padding:20px;display:grid;gap:18px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}.stat{padding:12px;border:1px solid var(--line);border-radius:10px}.stat b{display:block;font-size:24px}input,select,textarea,button{font:inherit;color:inherit;background:#0f1628;border:1px solid var(--line);border-radius:8px;padding:9px}button{cursor:pointer}button.primary{background:#17324a;border-color:#2f7896}.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1;min-width:110px}.list{display:grid;gap:8px;margin-top:10px}.item{padding:11px;border:1px solid var(--line);border-radius:9px;background:#0f1628}.item strong{display:block}.badge{display:inline-block;padding:2px 7px;border-radius:999px;border:1px solid var(--line);font-size:12px;margin-right:4px}.high,.critical{color:var(--bad)}.medium{color:var(--warn)}.low{color:var(--good)}dialog{width:min(760px,94vw);background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px}pre{white-space:pre-wrap;word-break:break-word;max-height:55vh;overflow:auto}.hidden{display:none}@media(max-width:720px){header{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<header><div><h1>AURORA Platform</h1><div class="muted">Evidence-first analyst operations</div></div><div class="row"><input id="token" type="password" placeholder="Bearer token"><button class="primary" onclick="connect()">Connect</button><button onclick="logout()">Clear</button></div></header>
+<main>
+<section class="panel"><div class="stats" id="stats"></div></section>
+<section class="grid">
+<div class="panel"><h2>Incident search</h2><div class="row"><input id="q" placeholder="Search"><select id="severity"><option value="">All severity</option><option>critical</option><option>high</option><option>medium</option><option>low</option></select><select id="category"><option value="">All categories</option><option>conflict</option><option>civil_unrest</option><option>disaster</option><option>cyber</option><option>infrastructure</option><option>health</option><option>world</option></select><button onclick="loadIncidents()">Run</button></div><div class="list" id="incidents"></div></div>
+<div class="panel"><h2>Unacknowledged alerts</h2><div class="list" id="alerts"></div></div>
+<div class="panel"><h2>Cases</h2><div class="row"><input id="caseTitle" placeholder="New case title"><select id="casePriority"><option>normal</option><option>high</option><option>critical</option><option>low</option></select><button onclick="createCase()">Create</button></div><div class="list" id="cases"></div></div>
+<div class="panel"><h2>Watchlists</h2><div class="row"><input id="watchName" placeholder="Name"><input id="watchQuery" placeholder="Query"><input id="watchConfidence" type="number" min="0" max="100" value="60"><button onclick="createWatchlist()">Add</button></div><div class="list" id="watchlists"></div></div>
+<div class="panel"><h2>Webhooks</h2><div class="row"><input id="hookName" placeholder="Name"><input id="hookUrl" placeholder="https://..."><button onclick="createWebhook()">Add</button></div><div class="list" id="webhooks"></div></div>
+</section>
+</main>
+<dialog id="detail"><button onclick="detail.close()">Close</button><pre id="detailBody"></pre></dialog>
+<script>
+const $=id=>document.getElementById(id),detail=$('detail');let auth=localStorage.getItem('auroraToken')||'';$('token').value=auth;
+async function api(path,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(auth)headers.Authorization='Bearer '+auth;const r=await fetch(path,{...options,headers});const t=await r.text();let data;try{data=JSON.parse(t)}catch{data=t}if(!r.ok)throw new Error(data.error||t||r.statusText);return data}
+function connect(){auth=$('token').value.trim();localStorage.setItem('auroraToken',auth);refreshAll()}
+function logout(){auth='';localStorage.removeItem('auroraToken');$('token').value='';location.reload()}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function item(title,meta,buttons=''){return `<div class="item"><strong>${esc(title)}</strong><div class="muted">${meta}</div>${buttons}</div>`}
+async function refreshAll(){try{await Promise.all([loadStats(),loadIncidents(),loadAlerts(),loadCases(),loadWatchlists(),loadWebhooks()])}catch(e){alert(e.message)}}
+async function loadStats(){const s=await api('/api/platform/stats');$('stats').innerHTML=Object.entries(s).map(([k,v])=>`<div class="stat"><span class="muted">${esc(k.replaceAll('_',' '))}</span><b>${esc(v)}</b></div>`).join('')}
+async function loadIncidents(){const p=new URLSearchParams({query:$('q').value,severity:$('severity').value,category:$('category').value,limit:'50'});const d=await api('/api/platform/incidents?'+p);$('incidents').innerHTML=d.incidents.map(i=>item(i.title,`<span class="badge ${esc(i.severity)}">${esc(i.severity)}</span><span class="badge">${esc(i.category)}</span><span class="badge">${esc(i.grade)}</span> ${esc(i.confidence)}%`,`<button onclick="showIncident('${esc(i.id)}')">Open</button>`)).join('')||'<div class="muted">No incidents</div>'}
+async function showIncident(id){const d=await api('/api/platform/incidents/'+encodeURIComponent(id));$('detailBody').textContent=JSON.stringify(d,null,2);detail.showModal()}
+async function loadAlerts(){const d=await api('/api/platform/alerts?unacknowledged=1');$('alerts').innerHTML=d.alerts.map(a=>item(a.incident_title,`${esc(a.watchlist_name)} · ${esc(a.severity)} · ${esc(a.confidence)}%`,`<button onclick="ack('${esc(a.id)}')">Acknowledge</button>`)).join('')||'<div class="muted">No open alerts</div>'}
+async function ack(id){await api('/api/platform/alerts/'+id+'/ack',{method:'POST',body:'{}'});await Promise.all([loadAlerts(),loadStats()])}
+async function loadCases(){const d=await api('/api/platform/cases');$('cases').innerHTML=d.cases.map(c=>item(c.title,`${esc(c.status)} · ${esc(c.priority)} · ${c.incidents.length} incidents`,`<button onclick="showCase('${esc(c.id)}')">Open</button>`)).join('')||'<div class="muted">No cases</div>'}
+async function createCase(){await api('/api/platform/cases',{method:'POST',body:JSON.stringify({title:$('caseTitle').value,priority:$('casePriority').value})});$('caseTitle').value='';await Promise.all([loadCases(),loadStats()])}
+async function showCase(id){const d=await api('/api/platform/cases/'+id);$('detailBody').textContent=JSON.stringify(d,null,2);detail.showModal()}
+async function loadWatchlists(){const d=await api('/api/platform/watchlists');$('watchlists').innerHTML=d.watchlists.map(w=>item(w.name,`${esc(w.query||'Any incident')} · min ${esc(w.min_confidence)}%`,`<button onclick="del('/api/platform/watchlists/${esc(w.id)}',loadWatchlists)">Delete</button>`)).join('')||'<div class="muted">No watchlists</div>'}
+async function createWatchlist(){await api('/api/platform/watchlists',{method:'POST',body:JSON.stringify({name:$('watchName').value,query:$('watchQuery').value,min_confidence:Number($('watchConfidence').value)})});$('watchName').value='';$('watchQuery').value='';await Promise.all([loadWatchlists(),loadStats()])}
+async function loadWebhooks(){const d=await api('/api/platform/webhooks');$('webhooks').innerHTML=d.webhooks.map(w=>item(w.name,esc(w.url),`<button onclick="del('/api/platform/webhooks/${esc(w.id)}',loadWebhooks)">Delete</button>`)).join('')||'<div class="muted">No webhooks</div>'}
+async function createWebhook(){await api('/api/platform/webhooks',{method:'POST',body:JSON.stringify({name:$('hookName').value,url:$('hookUrl').value})});$('hookName').value='';$('hookUrl').value='';await loadWebhooks()}
+async function del(path,cb){await api(path,{method:'DELETE'});await cb()}
+if(auth)refreshAll();
+</script>
+</body></html>
