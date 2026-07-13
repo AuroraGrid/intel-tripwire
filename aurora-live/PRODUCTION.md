@@ -1,6 +1,6 @@
 # AURORA LIVE production deployment
 
-This release supports a persistent single-host deployment using Docker and a named volume. SQLite remains the active database, so do not run multiple application replicas against the same file.
+The default production stack uses PostgreSQL 16. SQLite remains supported for local development and controlled single-host fallback deployments.
 
 ## Start
 
@@ -32,18 +32,27 @@ curl -sS -X POST http://localhost:8090/api/platform/users \
   -d '{"email":"analyst@example.com","role":"analyst"}'
 ```
 
-## Backup
+Allowed roles are `viewer`, `analyst`, and `admin`.
 
-Stop the application before copying the SQLite file:
+## Database selection
+
+`DATABASE_URL` selects PostgreSQL and takes precedence over `DATABASE_PATH`. The default Compose stack configures PostgreSQL automatically. See `POSTGRESQL.md` for migration, rollback, and backup procedures.
+
+For SQLite fallback:
 
 ```bash
-docker compose stop aurora-platform
-docker run --rm -v aurora-live_aurora-data:/data -v "$PWD":/backup alpine \
-  cp /data/aurora-live.db /backup/aurora-live-backup.db
-docker compose start aurora-platform
+docker compose -f docker-compose.sqlite.yml up --build -d
 ```
 
-Test restoration regularly. Backups are not verified until they have been restored into a separate environment.
+## Backup
+
+For PostgreSQL:
+
+```bash
+docker compose exec -T postgres pg_dump -U aurora -d aurora -Fc > aurora-postgres.dump
+```
+
+Test restoration into a separate database regularly. Backups are not verified until they have been restored.
 
 ## Reverse proxy
 
@@ -57,14 +66,14 @@ Set `AURORA_CORS_ORIGIN` to the exact public origin. Do not leave it as `*` for 
 
 ## Security controls
 
-- The container runs as an unprivileged user.
-- The root filesystem is read-only; only `/data` is persistent and writable.
+- The application container runs as an unprivileged user.
+- The application root filesystem is read-only.
 - Webhook destinations must use HTTPS and cannot be literal local or private IP addresses.
 - Webhook bodies may be signed with `X-Aurora-Signature` using HMAC-SHA256.
 - The analyst token is stored only in the browser's local storage. Use a dedicated browser profile and clear the token on shared machines.
 
 ## Operational limits
 
-- SQLite supports a single application replica in this architecture.
-- The built-in Python HTTP server is suitable for controlled single-host use, but a PostgreSQL and production application-server migration remains the next scale gate.
-- Webhook delivery is currently initiated through `POST /api/platform/deliveries/run`; schedule this endpoint from a trusted internal job runner if automatic delivery is required.
+- PostgreSQL removes the SQLite single-replica database constraint, but the built-in Python HTTP server remains a Phase 2 production gate.
+- Webhook delivery is currently initiated through `POST /api/platform/deliveries/run`; automatic background scheduling is Phase 3.
+- Token revocation, organization workspaces, granular RBAC, and immutable audit logs are Phase 4.
