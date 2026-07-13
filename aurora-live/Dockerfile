@@ -15,4 +15,4 @@ RUN mkdir -p /data && useradd --create-home --uid 10001 aurora && chown -R auror
 USER aurora
 EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD python -c "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8090/api/platform/ready',timeout=3)); assert d['status']=='ready'"
-CMD ["sh","-c","exec gunicorn platform_wsgi:application --bind 0.0.0.0:8090 --workers ${GUNICORN_WORKERS} --timeout ${GUNICORN_TIMEOUT} --access-logfile - --error-logfile -"]
+CMD ["sh","-c","exec gunicorn production_wsgi:application --bind 0.0.0.0:8090 --workers ${GUNICORN_WORKERS} --timeout ${GUNICORN_TIMEOUT} --access-logfile - --error-logfile -"]
