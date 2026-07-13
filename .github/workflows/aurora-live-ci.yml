@@ -1,0 +1,96 @@
+name: AURORA LIVE CI
+
+on:
+  push:
+    branches:
+      - main
+      - agent/aurora-live-v1
+    paths:
+      - "aurora-live/**"
+      - ".github/workflows/aurora-live-ci.yml"
+  pull_request:
+    paths:
+      - "aurora-live/**"
+      - ".github/workflows/aurora-live-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aurora-live-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Compile backend
+        run: python -m py_compile aurora-live/app.py
+
+      - name: Run evidence-model tests
+        run: python -m unittest discover -s aurora-live/tests -p "test_*.py" -v
+
+      - name: Start offline server
+        run: |
+          python aurora-live/app.py --offline --host 127.0.0.1 --port 8080 > /tmp/aurora-live.log 2>&1 &
+          echo $! > /tmp/aurora-live.pid
+
+      - name: Smoke-test API and browser
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import urllib.request
+
+          base = "http://127.0.0.1:8080"
+          last_error = None
+          for _ in range(30):
+              try:
+                  with urllib.request.urlopen(base + "/api/health", timeout=2) as response:
+                      health = json.load(response)
+                  if health.get("status") == "ok":
+                      break
+              except Exception as exc:
+                  last_error = exc
+                  time.sleep(1)
+          else:
+              raise SystemExit(f"Server did not become healthy: {last_error}")
+
+          with urllib.request.urlopen(base + "/api/events", timeout=10) as response:
+              events = json.load(response)
+          assert events.get("event_count", 0) >= 1, events
+          assert events.get("mode") == "offline_fallback", events
+          assert events.get("events"), events
+
+          with urllib.request.urlopen(base + "/", timeout=5) as response:
+              page = response.read().decode("utf-8")
+          assert "AURORA LIVE" in page, page[:500]
+          print(f"Validated {events['event_count']} events and {events['evidence_count']} evidence records")
+          PY
+
+      - name: Show server log on failure
+        if: failure()
+        run: cat /tmp/aurora-live.log || true
+
+      - name: Stop offline server
+        if: always()
+        run: |
+          if [ -f /tmp/aurora-live.pid ]; then
+            kill "$(cat /tmp/aurora-live.pid)" 2>/dev/null || true
+          fi
