@@ -9,7 +9,10 @@ from storage import Store,now
 
 ROOT=Path(__file__).resolve().parent
 STATIC=ROOT/'static'
-STORE=Store(os.getenv('DATABASE_PATH','data/aurora-live.db'));OPS=Operations(STORE)
+def configured_store(database=None):
+    target=database or os.getenv('DATABASE_URL') or os.getenv('DATABASE_PATH','data/aurora-live.db')
+    return Store(target)
+STORE=configured_store();OPS=Operations(STORE)
 
 def bearer(h):
     a=h.get('Authorization','');return a[7:].strip() if a.lower().startswith('bearer ') else ''
@@ -41,7 +44,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             path,q,parts=self.route()
             if path in {'/platform','/platform/'}:return self.send_file(STATIC/'platform.html','text/html; charset=utf-8')
-            if path=='/api/platform/health':return self.send_json(200,{'status':'ok','time':now(),'users':STORE.users()})
+            if path=='/api/platform/health':return self.send_json(200,{'status':'ok','time':now(),'users':STORE.users(),'database':STORE.backend})
             u=self.user();uid=u['id'];v=lambda n,d='':(q.get(n)or[d])[0]
             if path=='/api/platform/me':return self.send_json(200,u)
             if path=='/api/platform/stats':return self.send_json(200,OPS.stats(uid))
@@ -105,8 +108,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--host',default='127.0.0.1');p.add_argument('--port',type=int,default=8090);p.add_argument('--database');a=p.parse_args();global STORE,OPS
-    if a.database:STORE=Store(a.database);OPS=Operations(STORE)
-    s=ThreadingHTTPServer((a.host,a.port),Handler);print(f'AURORA platform at http://{a.host}:{a.port}/platform')
+    if a.database:STORE=configured_store(a.database);OPS=Operations(STORE)
+    s=ThreadingHTTPServer((a.host,a.port),Handler);print(f'AURORA platform at http://{a.host}:{a.port}/platform ({STORE.backend})')
     try:s.serve_forever()
     except KeyboardInterrupt:pass
     finally:s.server_close()
