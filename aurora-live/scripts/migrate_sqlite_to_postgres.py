@@ -12,9 +12,10 @@ from database import Database
 from operations import Operations
 from storage import Store
 
-
 TABLES = [
     "users",
+    "memberships",
+    "api_tokens",
     "watchlists",
     "incidents",
     "evidence",
@@ -26,6 +27,9 @@ TABLES = [
     "case_notes",
     "webhooks",
     "deliveries",
+    "worker_jobs",
+    "worker_heartbeats",
+    "audit_events",
 ]
 
 
@@ -51,15 +55,15 @@ def migrate(source_path: str, target_url: str, truncate_target: bool = False) ->
     if target_store.backend != "postgres":
         raise ValueError("target must be a PostgreSQL DATABASE_URL")
     Operations(target_store)
+    from worker_state import WorkerState
+    WorkerState(target_store)
     target = target_store.database
 
     existing = {table: count(target, table) for table in TABLES}
     if any(existing.values()):
         if not truncate_target:
             populated = ", ".join(f"{table}={rows}" for table, rows in existing.items() if rows)
-            raise RuntimeError(
-                "target is not empty; rerun with --truncate-target only after taking a backup: " + populated
-            )
+            raise RuntimeError("target is not empty; rerun with --truncate-target only after taking a backup: " + populated)
         clear_target(target)
 
     copied: dict[str, int] = {}
@@ -87,32 +91,20 @@ def migrate(source_path: str, target_url: str, truncate_target: bool = False) ->
 
     if copied.get("timeline"):
         with target.connection() as connection:
-            connection.execute(
-                "SELECT setval(pg_get_serial_sequence('timeline','id'), COALESCE((SELECT MAX(id) FROM timeline),1), true)"
-            )
+            connection.execute("SELECT setval(pg_get_serial_sequence('timeline','id'), COALESCE((SELECT MAX(id) FROM timeline),1), true)")
 
     for table, expected in copied.items():
         actual = count(target, table)
         if actual != expected:
-            raise RuntimeError(
-                f"verification failed for {table}: expected {expected}, found {actual}"
-            )
+            raise RuntimeError(f"verification failed for {table}: expected {expected}, found {actual}")
     return copied
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Copy an AURORA SQLite database into PostgreSQL")
+    parser = argparse.ArgumentParser(description="Copy an AURORA SQLite workspace database into PostgreSQL")
     parser.add_argument("--source", required=True, help="Path to the SQLite database")
-    parser.add_argument(
-        "--target",
-        default=os.getenv("DATABASE_URL", ""),
-        help="PostgreSQL URL; defaults to DATABASE_URL",
-    )
-    parser.add_argument(
-        "--truncate-target",
-        action="store_true",
-        help="Delete existing target data before copying; take a backup first",
-    )
+    parser.add_argument("--target", default=os.getenv("DATABASE_URL", ""), help="PostgreSQL URL; defaults to DATABASE_URL")
+    parser.add_argument("--truncate-target", action="store_true", help="Delete existing target data before copying; take a backup first")
     args = parser.parse_args()
     if not args.target:
         parser.error("--target or DATABASE_URL is required")
