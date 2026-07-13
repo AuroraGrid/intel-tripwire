@@ -115,7 +115,7 @@ class Store:
                 i=self.incident(iid,False); hay=(i['title']+' '+dumps(i['payload'])).lower()
                 if i['confidence']<w['min_confidence'] or (cats and i['category'] not in cats) or (sevs and i['severity'] not in sevs) or (terms and not any(t in hay for t in terms)):continue
                 try:
-                    with self.db() as c:c.execute('INSERT INTO alerts VALUES(?,?,?,?,?)',(sid('alert',w['id'],iid),w['user_id'],w['id'],iid,now()))
+                    with self.db() as c:c.execute('INSERT INTO alerts(id,user_id,watchlist_id,incident_id,created_at) VALUES(?,?,?,?,?)',(sid('alert',w['id'],iid),w['user_id'],w['id'],iid,now()))
                     made+=1
                 except sqlite3.IntegrityError:pass
         return made
