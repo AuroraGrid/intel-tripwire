@@ -1,16 +1,34 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aurora
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - aurora-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora -d aurora"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
   aurora-platform:
     build: .
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8090:8090"
     environment:
-      DATABASE_PATH: /data/aurora-live.db
+      DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
       AURORA_BOOTSTRAP_SECRET: ${AURORA_BOOTSTRAP_SECRET:?set AURORA_BOOTSTRAP_SECRET}
       AURORA_WEBHOOK_SECRET: ${AURORA_WEBHOOK_SECRET:?set AURORA_WEBHOOK_SECRET}
       AURORA_CORS_ORIGIN: ${AURORA_CORS_ORIGIN:-http://localhost:8090}
-    volumes:
-      - aurora-data:/data
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -18,4 +36,4 @@ services:
       - /tmp
 
 volumes:
-  aurora-data:
+  aurora-postgres:

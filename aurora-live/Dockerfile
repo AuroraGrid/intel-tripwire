@@ -6,6 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DATABASE_PATH=/data/aurora-live.db
 
 WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY . /app
 RUN mkdir -p /data && useradd --create-home --uid 10001 aurora && chown -R aurora:aurora /app /data
 USER aurora
