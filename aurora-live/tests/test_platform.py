@@ -28,7 +28,10 @@ E = {
     ],
 }
 
-TABLES = ["deliveries","webhooks","case_notes","case_incidents","cases","notes","alerts","timeline","evidence","incidents","watchlists","users"]
+TABLES = [
+    "worker_heartbeats", "worker_jobs", "deliveries", "webhooks", "case_notes", "case_incidents", "cases",
+    "notes", "alerts", "timeline", "evidence", "incidents", "watchlists", "api_tokens", "memberships", "users",
+]
 
 
 class Response:
@@ -44,6 +47,7 @@ class PlatformTests(unittest.TestCase):
         self.operations = Operations(self.store)
         if self.store.backend == "postgres": self._clear()
         self.user, self.token = self.store.create_user("a@b.com", "admin")
+        self.workspace_id = self.store.auth(self.token)["workspace_id"]
 
     def tearDown(self):
         if self.store.backend == "postgres": self._clear()
@@ -51,60 +55,79 @@ class PlatformTests(unittest.TestCase):
 
     def _clear(self):
         with self.store.db() as connection:
-            for table in TABLES: connection.execute(f"DELETE FROM {table}")
+            for table in TABLES:
+                if self.store.database.table_exists(table):
+                    connection.execute(f"DELETE FROM {table}")
+
+    def ingest(self, event=None):
+        result = self.store.ingest({"events": [event or E]}, workspace_id=self.workspace_id, actor_user_id=self.user["id"])
+        return result, result["incident_ids"][0]
 
     def test_auth_and_role_validation(self):
-        self.assertEqual(self.store.auth(self.token)["email"], "a@b.com")
+        authenticated = self.store.auth(self.token)
+        self.assertEqual(authenticated["email"], "a@b.com")
+        self.assertEqual(authenticated["workspace_role"], "owner")
+        self.assertIn("owner", authenticated["permissions"])
         self.assertIsNone(self.store.auth("x"))
         with self.assertRaises(ValueError): self.store.create_user("other@example.com", "owner")
 
     def test_ingest_graph_timeline_filters(self):
-        result = self.store.ingest({"events": [E]})
+        result, incident_id = self.ingest()
         self.assertEqual(result["created"], 1)
-        self.assertEqual(len(self.store.incident("i1")["evidence"]), 2)
-        self.assertEqual(len(self.store.graph("i1")["edges"]), 4)
-        self.assertEqual(self.store.timeline("i1")[0]["event_type"], "DETECTED")
-        self.assertEqual(len(self.operations.incidents(category="infrastructure", min_confidence=75)), 1)
-        self.assertEqual(self.operations.incidents(category="conflict"), [])
+        self.assertEqual(len(self.store.incident(incident_id, workspace_id=self.workspace_id)["evidence"]), 2)
+        self.assertEqual(len(self.store.graph(incident_id, workspace_id=self.workspace_id)["edges"]), 4)
+        self.assertEqual(self.store.timeline(incident_id, self.workspace_id)[0]["event_type"], "DETECTED")
+        self.assertEqual(len(self.operations.incidents(category="infrastructure", min_confidence=75, workspace_id=self.workspace_id)), 1)
+        self.assertEqual(self.operations.incidents(category="conflict", workspace_id=self.workspace_id), [])
 
     def test_claim_id_is_accepted(self):
         event = dict(E); event.pop("id"); event["claim_id"] = "claim-1"
-        self.store.ingest({"events": [event]})
-        self.assertEqual(self.store.incident("claim-1")["title"], E["title"])
+        _, incident_id = self.ingest(event)
+        self.assertEqual(self.store.incident(incident_id, workspace_id=self.workspace_id)["payload"]["source_id"], "claim-1")
 
     def test_watch_alert_ack_once(self):
-        self.store.add_watchlist(self.user["id"], {"name":"Ports","query":"port","categories":["infrastructure"],"severities":["high"],"min_confidence":70})
-        self.assertEqual(self.store.ingest({"events":[E]})["alerts_created"],1)
-        self.assertEqual(self.store.ingest({"events":[E]})["alerts_created"],0)
-        alert=self.operations.alerts(self.user["id"])[0]
-        self.operations.acknowledge_alert(self.user["id"],alert["id"])
-        self.assertEqual(self.operations.alerts(self.user["id"],True),[])
+        self.store.add_watchlist(self.user["id"], {"name":"Ports","query":"port","categories":["infrastructure"],"severities":["high"],"min_confidence":70}, self.workspace_id)
+        first, _ = self.ingest()
+        second, _ = self.ingest()
+        self.assertEqual(first["alerts_created"], 1)
+        self.assertEqual(second["alerts_created"], 0)
+        alert = self.operations.alerts(self.user["id"], workspace_id=self.workspace_id)[0]
+        self.operations.acknowledge_alert(self.user["id"], alert["id"], self.workspace_id)
+        self.assertEqual(self.operations.alerts(self.user["id"], True, self.workspace_id), [])
 
     def test_change_note_case(self):
-        self.store.ingest({"events":[E]});self.store.ingest({"events":[dict(E,severity="critical",confidence_score=95)]})
-        self.store.add_note("i1",self.user["id"],"Verify rail impact")
-        case=self.operations.create_case(self.user["id"],{"title":"Port disruption","priority":"high"})
-        self.operations.add_case_incident(self.user["id"],case["id"],"i1")
-        self.operations.add_case_note(self.user["id"],case["id"],"Contact logistics desk")
-        case=self.operations.case(self.user["id"],case["id"])
-        self.assertEqual(len(case["incidents"]),1);self.assertEqual(len(case["notes"]),1)
-        self.assertEqual([item["event_type"] for item in self.store.timeline("i1")],["DETECTED","ASSESSMENT_CHANGED","ANALYST_NOTE"])
+        _, incident_id = self.ingest()
+        self.ingest(dict(E, severity="critical", confidence_score=95))
+        self.store.add_note(incident_id, self.user["id"], "Verify rail impact", self.workspace_id)
+        case = self.operations.create_case(self.user["id"], {"title":"Port disruption","priority":"high"}, self.workspace_id)
+        self.operations.add_case_incident(self.user["id"], case["id"], incident_id, self.workspace_id)
+        self.operations.add_case_note(self.user["id"], case["id"], "Contact logistics desk", self.workspace_id)
+        case = self.operations.case(self.user["id"], case["id"], self.workspace_id)
+        self.assertEqual(len(case["incidents"]), 1)
+        self.assertEqual(len(case["notes"]), 1)
+        self.assertEqual([item["event_type"] for item in self.store.timeline(incident_id, self.workspace_id)], ["DETECTED", "ASSESSMENT_CHANGED", "ANALYST_NOTE"])
 
     def test_webhook_delivery_guard(self):
-        with self.assertRaises(ValueError): self.operations.add_webhook(self.user["id"],{"name":"bad","url":"http://127.0.0.1/x"})
-        self.operations.add_webhook(self.user["id"],{"name":"Ops","url":"https://hooks.example.com/aurora"})
-        self.store.add_watchlist(self.user["id"],{"name":"Ports","query":"port"});self.store.ingest({"events":[E]})
-        alert=self.store.alerts(self.user["id"])[0];self.operations.queue_deliveries(self.user["id"],alert["id"]);seen={}
-        def opener(request,timeout=0): seen["body"]=json.loads(request.data.decode());return Response()
-        self.assertEqual(deliver_pending(self.operations,self.user["id"],opener=opener),{"attempted":1,"delivered":1,"failed":0})
-        self.assertEqual(seen["body"]["alert"]["status"],"PLAUSIBLE")
-        self.assertEqual(self.operations.pending_deliveries(self.user["id"]),[])
+        with self.assertRaises(ValueError): self.operations.add_webhook(self.user["id"], {"name":"bad","url":"http://127.0.0.1/x"}, self.workspace_id)
+        self.operations.add_webhook(self.user["id"], {"name":"Ops","url":"https://hooks.example.com/aurora"}, self.workspace_id)
+        self.store.add_watchlist(self.user["id"], {"name":"Ports","query":"port"}, self.workspace_id)
+        self.ingest()
+        alert = self.store.alerts(self.user["id"], self.workspace_id)[0]
+        self.operations.queue_deliveries(self.user["id"], alert["id"], self.workspace_id)
+        seen = {}
+        def opener(request, timeout=0): seen["body"] = json.loads(request.data.decode()); return Response()
+        self.assertEqual(deliver_pending(self.operations, self.user["id"], opener=opener), {"attempted":1,"delivered":1,"failed":0})
+        self.assertEqual(seen["body"]["alert"]["status"], "PLAUSIBLE")
+        self.assertEqual(self.operations.pending_deliveries(self.user["id"], workspace_id=self.workspace_id), [])
 
     def test_feeds_stats(self):
-        self.store.ingest({"events":[E]});items=self.operations.incidents();feed=json.loads(json_feed(items,"https://a.example"))
-        self.assertEqual(feed["items"][0]["id"],"i1");self.assertIn("/api/platform/incidents/i1",feed["items"][0]["url"])
-        self.assertIn('<rss version="2.0">',rss_feed(items,"https://a.example").decode())
-        self.assertEqual(self.operations.stats(self.user["id"])["incidents"],1)
+        _, incident_id = self.ingest()
+        items = self.operations.incidents(workspace_id=self.workspace_id)
+        feed = json.loads(json_feed(items, "https://a.example"))
+        self.assertEqual(feed["items"][0]["id"], incident_id)
+        self.assertIn("/api/platform/incidents/", feed["items"][0]["url"])
+        self.assertIn('<rss version="2.0">', rss_feed(items, "https://a.example").decode())
+        self.assertEqual(self.operations.stats(self.user["id"], self.workspace_id)["incidents"], 1)
 
 
 if __name__ == "__main__": unittest.main()
