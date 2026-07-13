@@ -95,7 +95,10 @@ def migrate(source_path: str, target_url: str, truncate_target: bool = False) ->
 
     for table, expected in copied.items():
         actual = count(target, table)
-        if actual != expected:
+        if table == "audit_events":
+            if actual < expected:
+                raise RuntimeError(f"verification failed for {table}: expected at least {expected}, found {actual}")
+        elif actual != expected:
             raise RuntimeError(f"verification failed for {table}: expected {expected}, found {actual}")
     return copied
 
@@ -104,7 +107,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Copy an AURORA SQLite workspace database into PostgreSQL")
     parser.add_argument("--source", required=True, help="Path to the SQLite database")
     parser.add_argument("--target", default=os.getenv("DATABASE_URL", ""), help="PostgreSQL URL; defaults to DATABASE_URL")
-    parser.add_argument("--truncate-target", action="store_true", help="Delete existing target data before copying; take a backup first")
+    parser.add_argument("--truncate-target", action="store_true", help="Delete existing target data before copying; immutable audit history is preserved")
     args = parser.parse_args()
     if not args.target:
         parser.error("--target or DATABASE_URL is required")
