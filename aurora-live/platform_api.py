@@ -1,21 +1,28 @@
 from __future__ import annotations
 import argparse,json,os,urllib.parse
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from pathlib import Path
 from delivery import deliver_pending
 from feeds import json_feed,rss_feed
 from operations import Operations
 from storage import Store,now
 
+ROOT=Path(__file__).resolve().parent
+STATIC=ROOT/'static'
 STORE=Store(os.getenv('DATABASE_PATH','data/aurora-live.db'));OPS=Operations(STORE)
 
 def bearer(h):
     a=h.get('Authorization','');return a[7:].strip() if a.lower().startswith('bearer ') else ''
 
 class Handler(BaseHTTPRequestHandler):
-    def send_bytes(self,code,body,ctype):
-        self.send_response(code);self.send_header('Content-Type',ctype);self.send_header('Cache-Control','no-store');self.send_header('Access-Control-Allow-Origin',os.getenv('AURORA_CORS_ORIGIN','*'));self.send_header('Access-Control-Allow-Headers','Authorization,Content-Type,X-Bootstrap-Secret');self.send_header('Access-Control-Allow-Methods','GET,POST,DELETE,OPTIONS');self.send_header('Content-Length',str(len(body)));self.end_headers()
+    def send_bytes(self,code,body,ctype,cache='no-store'):
+        self.send_response(code);self.send_header('Content-Type',ctype);self.send_header('Cache-Control',cache);self.send_header('Access-Control-Allow-Origin',os.getenv('AURORA_CORS_ORIGIN','*'));self.send_header('Access-Control-Allow-Headers','Authorization,Content-Type,X-Bootstrap-Secret');self.send_header('Access-Control-Allow-Methods','GET,POST,DELETE,OPTIONS');self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer');self.send_header('Content-Security-Policy',"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'");self.send_header('Content-Length',str(len(body)));self.end_headers()
         if body:self.wfile.write(body)
     def send_json(self,code,data):self.send_bytes(code,json.dumps(data,ensure_ascii=False).encode(),'application/json; charset=utf-8')
+    def send_file(self,path,ctype):
+        try:body=path.read_bytes()
+        except FileNotFoundError:return self.send_json(404,{'error':'not found'})
+        return self.send_bytes(200,body,ctype,'public, max-age=300')
     def body(self):
         n=int(self.headers.get('Content-Length','0'))
         if n>1000000:raise ValueError('request body too large')
@@ -33,6 +40,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             path,q,parts=self.route()
+            if path in {'/platform','/platform/'}:return self.send_file(STATIC/'platform.html','text/html; charset=utf-8')
             if path=='/api/platform/health':return self.send_json(200,{'status':'ok','time':now(),'users':STORE.users()})
             u=self.user();uid=u['id'];v=lambda n,d='':(q.get(n)or[d])[0]
             if path=='/api/platform/me':return self.send_json(200,u)
@@ -98,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--host',default='127.0.0.1');p.add_argument('--port',type=int,default=8090);p.add_argument('--database');a=p.parse_args();global STORE,OPS
     if a.database:STORE=Store(a.database);OPS=Operations(STORE)
-    s=ThreadingHTTPServer((a.host,a.port),Handler);print(f'AURORA platform at http://{a.host}:{a.port}')
+    s=ThreadingHTTPServer((a.host,a.port),Handler);print(f'AURORA platform at http://{a.host}:{a.port}/platform')
     try:s.serve_forever()
     except KeyboardInterrupt:pass
     finally:s.server_close()

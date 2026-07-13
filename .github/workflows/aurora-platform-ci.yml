@@ -5,22 +5,13 @@ on:
     branches:
       - main
       - agent/aurora-platform-v2
+      - agent/aurora-production-v3
     paths:
-      - "aurora-live/storage.py"
-      - "aurora-live/operations.py"
-      - "aurora-live/delivery.py"
-      - "aurora-live/feeds.py"
-      - "aurora-live/platform_api.py"
-      - "aurora-live/tests/test_platform.py"
+      - "aurora-live/**"
       - ".github/workflows/aurora-platform-ci.yml"
   pull_request:
     paths:
-      - "aurora-live/storage.py"
-      - "aurora-live/operations.py"
-      - "aurora-live/delivery.py"
-      - "aurora-live/feeds.py"
-      - "aurora-live/platform_api.py"
-      - "aurora-live/tests/test_platform.py"
+      - "aurora-live/**"
       - ".github/workflows/aurora-platform-ci.yml"
   workflow_dispatch:
 
@@ -44,17 +35,17 @@ jobs:
         run: python -m py_compile aurora-live/storage.py aurora-live/operations.py aurora-live/delivery.py aurora-live/feeds.py aurora-live/platform_api.py
       - name: Run platform tests
         run: python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
-      - name: Smoke-test platform API
+      - name: Smoke-test API and dashboard
         run: |
           cd aurora-live
           DATABASE_PATH=/tmp/aurora-platform.db AURORA_QUIET=1 python platform_api.py --host 127.0.0.1 --port 8090 > /tmp/aurora-platform.log 2>&1 &
           echo $! > /tmp/aurora-platform.pid
           python - <<'PY'
           import json, time, urllib.request
-          url = "http://127.0.0.1:8090/api/platform/health"
+          base = "http://127.0.0.1:8090"
           for _ in range(20):
               try:
-                  with urllib.request.urlopen(url, timeout=2) as response:
+                  with urllib.request.urlopen(base + "/api/platform/health", timeout=2) as response:
                       data = json.load(response)
                   assert data["status"] == "ok"
                   break
@@ -62,6 +53,13 @@ jobs:
                   time.sleep(0.5)
           else:
               raise SystemExit("platform API did not become healthy")
+          with urllib.request.urlopen(base + "/platform", timeout=3) as response:
+              page = response.read().decode("utf-8")
+              headers = response.headers
+          assert "AURORA Platform" in page
+          assert "Incident search" in page
+          assert headers.get("X-Content-Type-Options") == "nosniff"
+          assert "default-src 'self'" in headers.get("Content-Security-Policy", "")
           PY
       - name: Show server log on failure
         if: failure()
@@ -72,3 +70,28 @@ jobs:
           if [ -f /tmp/aurora-platform.pid ]; then
             kill "$(cat /tmp/aurora-platform.pid)" 2>/dev/null || true
           fi
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build container
+        run: docker build -t aurora-platform-ci aurora-live
+      - name: Run container
+        run: |
+          docker run -d --name aurora-platform-ci -p 8091:8090 \
+            -e AURORA_BOOTSTRAP_SECRET=test-bootstrap-secret \
+            -e AURORA_WEBHOOK_SECRET=test-webhook-secret \
+            -v aurora-platform-ci-data:/data aurora-platform-ci
+      - name: Check container health
+        run: |
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8091/api/platform/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs aurora-platform-ci
+          exit 1
+      - name: Stop container
+        if: always()
+        run: docker rm -f aurora-platform-ci 2>/dev/null || true
