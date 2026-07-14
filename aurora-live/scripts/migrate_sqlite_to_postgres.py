@@ -21,19 +21,3 @@ TABLES = [
     "evidence",
     "timeline",
     "alerts",
-    "notes",
-    "cases",
-    "case_incidents",
-    "case_notes",
-    "webhooks",
-    "deliveries",
-    "worker_jobs",
-    "worker_heartbeats",
-    "audit_events",
-]
-
-
-def count(database: Database, table: str) -> int:
-    if not database.table_exists(table):
-        return 0
-    with database
