@@ -18,7 +18,7 @@ class ProductionApplication:
         body = self.base.json(value)
         headers = [("Content-Type", "application/json; charset=utf-8"), *self.base.security_headers(environ, rid), ("Content-Length", str(len(body)))]
         if trace_id: headers.append(("X-Trace-ID", trace_id))
-        start_response(f"{status} {STATUS.get(status, 'Unknown')}", headers)
+        start_response(f"{status} {STATUS.get(status, 'Service Unavailable' if status == 503 else 'Unknown')}", headers)
         return [body]
 
     def readiness(self):
@@ -75,6 +75,8 @@ class ProductionApplication:
                 duration = finish(code)
                 log_event("http_request", level="error" if code >= 500 else "info", request_id=rid, trace_id=trace_id, method=method, path=path, status=code, duration_seconds=round(duration, 6))
                 completed = True
+            if exc_info is None:
+                return start_response(status, headers)
             return start_response(status, headers, exc_info)
 
         try:
@@ -96,7 +98,7 @@ class ProductionApplication:
             log_event("request_exception", "error", request_id=rid, trace_id=trace_id, method=method, path=path, error=type(exc).__name__, message=str(exc)); error = HTTPError(500, "internal_error", "internal server error")
         body = self.base.json({"error": {"code": error.code, "message": error.message}, "request_id": rid})
         headers = [("Content-Type", "application/json; charset=utf-8"), ("Cache-Control", "no-store"), ("X-Request-ID", rid), ("X-Trace-ID", trace_id), *error.headers, ("Content-Length", str(len(body)))]
-        observed_start(f"{error.status} {STATUS.get(error.status, 'Unknown')}", headers)
+        observed_start(f"{error.status} {STATUS.get(error.status, 'Service Unavailable' if error.status == 503 else 'Unknown')}", headers)
         return [body]
 
 
