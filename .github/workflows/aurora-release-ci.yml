@@ -1,0 +1,44 @@
+name: AURORA Release CI
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/**"
+      - ".github/workflows/aurora-release-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "aurora-live/**"
+      - ".github/workflows/aurora-release-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase6:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m py_compile aurora-live/release_engine.py aurora-live/release_app.py aurora-live/release_wsgi.py aurora-live/release_worker.py aurora-live/load_test.py aurora-live/release_check.py
+      - run: python -m unittest discover -s aurora-live/tests -p "test_phase6.py" -v
+
+  offline-load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python aurora-live/release_app.py --offline --host 127.0.0.1 --port 8080 > /tmp/aurora-release.log 2>&1 &
+      - run: sleep 3
+      - run: python aurora-live/load_test.py --base-url http://127.0.0.1:8080 --requests 160 --concurrency 16 --max-p95 2.0 --min-success-rate 1.0
+      - if: failure()
+        run: cat /tmp/aurora-release.log || true
