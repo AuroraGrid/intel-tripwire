@@ -9,6 +9,7 @@ import time
 import uuid
 
 from app import AGGREGATOR
+from identity import CURRENT_WORKSPACE
 from operations import Operations
 from platform_wsgi import configured_store
 from worker_delivery import DeliveryQueue
@@ -40,20 +41,28 @@ class AuroraWorker:
     def stop(self, *_):
         self.stopping = True
 
-    def _new_alerts(self, before):
+    def workspace_ids(self):
         with self.store.db() as connection:
-            rows = connection.execute("SELECT id,user_id FROM alerts ORDER BY created_at").fetchall()
-        return [dict(row) for row in rows if row["id"] not in before]
+            return [row["id"] for row in connection.execute("SELECT id FROM workspaces ORDER BY created_at").fetchall()]
 
     def refresh(self):
-        with self.store.db() as connection:
-            before = {row["id"] for row in connection.execute("SELECT id FROM alerts").fetchall()}
-        result = self.store.ingest(self.collector(force=True))
-        queued = 0
-        for alert in self._new_alerts(before):
-            self.ops.queue_deliveries(alert["user_id"], alert["id"])
-            queued += 1
-        return {**result, "deliveries_queued_for_alerts": queued}
+        payload = self.collector(force=True)
+        total = {"workspaces": 0, "ingested": 0, "created": 0, "updated": 0, "alerts_created": 0, "deliveries_queued_for_alerts": 0}
+        for workspace_id in self.workspace_ids():
+            CURRENT_WORKSPACE.set(workspace_id)
+            with self.store.db() as connection:
+                before = {row["id"] for row in connection.execute("SELECT id FROM alerts WHERE workspace_id=?", (workspace_id,)).fetchall()}
+            result = self.store.ingest(payload, workspace_id=workspace_id)
+            with self.store.db() as connection:
+                new_alerts = [dict(row) for row in connection.execute("SELECT id,user_id FROM alerts WHERE workspace_id=? ORDER BY created_at", (workspace_id,)).fetchall() if row["id"] not in before]
+            for alert in new_alerts:
+                self.ops.queue_deliveries(alert["user_id"], alert["id"], workspace_id)
+            total["workspaces"] += 1
+            for key in ("ingested", "created", "updated", "alerts_created"):
+                total[key] += int(result.get(key, 0))
+            total["deliveries_queued_for_alerts"] += len(new_alerts)
+        CURRENT_WORKSPACE.set(None)
+        return total
 
     def run_job(self, name, interval, callback):
         if not self.state.acquire(name, self.worker_id, self.lease_seconds):

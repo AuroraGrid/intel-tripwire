@@ -7,6 +7,7 @@ on:
       - agent/aurora-postgres-phase-1
       - agent/aurora-api-hardening-phase-2
       - agent/aurora-workers-phase-3
+      - agent/aurora-identity-rbac-phase-4
     paths:
       - "aurora-live/**"
       - ".github/workflows/aurora-platform-ci.yml"
@@ -34,12 +35,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -r aurora-live/requirements.txt
       - name: Compile platform and worker
-        run: python -m py_compile aurora-live/database.py aurora-live/storage.py aurora-live/operations.py aurora-live/delivery.py aurora-live/feeds.py aurora-live/platform_api.py aurora-live/platform_wsgi.py aurora-live/production_wsgi.py aurora-live/worker_state.py aurora-live/worker_delivery.py aurora-live/worker.py aurora-live/scripts/migrate_sqlite_to_postgres.py
+        run: python -m py_compile aurora-live/database.py aurora-live/identity.py aurora-live/storage.py aurora-live/operations.py aurora-live/delivery.py aurora-live/feeds.py aurora-live/platform_api.py aurora-live/platform_wsgi.py aurora-live/production_wsgi.py aurora-live/worker_state.py aurora-live/worker_delivery.py aurora-live/worker.py aurora-live/scripts/migrate_sqlite_to_postgres.py
       - name: Run SQLite tests
         run: |
           python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_wsgi.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_worker.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_identity.py" -v
       - name: Smoke-test one worker tick
         run: cd aurora-live && AURORA_OFFLINE=1 DATABASE_PATH=/tmp/aurora-worker.db python worker.py --once --worker-id ci-worker
       - name: Smoke-test API and dashboard
@@ -95,6 +97,7 @@ jobs:
         run: |
           python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_worker.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_identity.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_migration.py" -v
       - name: Smoke-test PostgreSQL worker and API
         run: |
