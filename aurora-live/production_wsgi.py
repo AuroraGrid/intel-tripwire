@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import os
-import time
 import uuid
 
 from observability import METRICS, log_event, metrics_enabled, timed_request
@@ -19,23 +17,20 @@ class ProductionApplication:
     def response(self, environ, start_response, status, value, rid, trace_id=None):
         body = self.base.json(value)
         headers = [("Content-Type", "application/json; charset=utf-8"), *self.base.security_headers(environ, rid), ("Content-Length", str(len(body)))]
-        if trace_id:
-            headers.append(("X-Trace-ID", trace_id))
+        if trace_id: headers.append(("X-Trace-ID", trace_id))
         start_response(f"{status} {STATUS.get(status, 'Unknown')}", headers)
         return [body]
 
     def readiness(self):
         checks = {"database": {"ok": False}, "workers": {"ok": True, "required": os.getenv("AURORA_REQUIRE_WORKER", "0") == "1"}}
         try:
-            with self.base.store.db() as connection:
-                connection.execute("SELECT 1").fetchone()
+            with self.base.store.db() as connection: connection.execute("SELECT 1").fetchone()
             checks["database"] = {"ok": True, "backend": self.base.store.backend}
         except Exception as exc:
             checks["database"] = {"ok": False, "error": type(exc).__name__}
         workers = self.worker_state.status(int(os.getenv("AURORA_WORKER_STALE_SECONDS", "120")))
         checks["workers"].update({"healthy": workers["healthy_workers"]})
-        if checks["workers"]["required"]:
-            checks["workers"]["ok"] = workers["healthy_workers"] > 0
+        if checks["workers"]["required"]: checks["workers"]["ok"] = workers["healthy_workers"] > 0
         ready = all(item["ok"] for item in checks.values())
         METRICS.set("aurora_readiness", 1 if ready else 0)
         METRICS.set("aurora_healthy_workers", workers["healthy_workers"])
@@ -44,8 +39,7 @@ class ProductionApplication:
     def dispatch_admin(self, environ, user, path, method):
         parts = [part for part in path.split("/") if part]
         if path == "/api/platform/workers" and method == "GET":
-            self.identity.require(user, "workers")
-            return self.worker_state.status(int(os.getenv("AURORA_WORKER_STALE_SECONDS", "120")))
+            self.identity.require(user, "workers"); return self.worker_state.status(int(os.getenv("AURORA_WORKER_STALE_SECONDS", "120")))
         if path == "/api/platform/workspaces" and method == "GET": return {"workspaces": self.identity.workspaces(user["id"])}
         if path == "/api/platform/workspaces" and method == "POST":
             payload = self.base.body(environ); return self.identity.create_workspace(user, payload.get("name", ""), payload.get("slug", ""))
@@ -70,27 +64,27 @@ class ProductionApplication:
         trace_id = str(environ.get("HTTP_X_TRACE_ID") or "")
         trace_id = trace_id if RID_RE.fullmatch(trace_id) else rid
         finish = timed_request(method, path)
-        status_code = 500
-        started = time.monotonic()
+        completed = False
 
         def observed_start(status, headers, exc_info=None):
-            nonlocal status_code
-            status_code = int(str(status).split()[0])
+            nonlocal completed
+            code = int(str(status).split()[0])
             headers = list(headers)
             if not any(key.lower() == "x-trace-id" for key, _ in headers): headers.append(("X-Trace-ID", trace_id))
+            if not completed:
+                duration = finish(code)
+                log_event("http_request", level="error" if code >= 500 else "info", request_id=rid, trace_id=trace_id, method=method, path=path, status=code, duration_seconds=round(duration, 6))
+                completed = True
             return start_response(status, headers, exc_info)
 
         try:
             if path == "/api/platform/metrics" and method == "GET":
                 if not metrics_enabled(): raise HTTPError(404, "not_found", "route not found")
-                body = METRICS.render(); observed_start("200 OK", [("Content-Type", "text/plain; version=0.0.4"), ("Content-Length", str(len(body))), ("X-Request-ID", rid)])
-                status_code = 200; return [body]
+                body = METRICS.render(); observed_start("200 OK", [("Content-Type", "text/plain; version=0.0.4"), ("Content-Length", str(len(body))), ("X-Request-ID", rid)]); return [body]
             if path == "/api/platform/ready" and method == "GET":
-                ready, payload = self.readiness(); status_code = 200 if ready else 503
-                return self.response(environ, observed_start, status_code, payload, rid, trace_id)
+                ready, payload = self.readiness(); return self.response(environ, observed_start, 200 if ready else 503, payload, rid, trace_id)
             managed = path == "/api/platform/workers" or path.startswith("/api/platform/workspaces") or path.startswith("/api/platform/memberships") or path.startswith("/api/platform/tokens") or path.startswith("/api/platform/audit")
-            if not managed:
-                return self.base(environ, observed_start)
+            if not managed: return self.base(environ, observed_start)
             self.base.origin(environ); user = self.base.user(environ); value = self.dispatch_admin(environ, user, path, method)
             status_code = 201 if method == "POST" and path in {"/api/platform/workspaces", "/api/platform/memberships", "/api/platform/tokens"} else 200
             return self.response(environ, observed_start, status_code, value, rid, trace_id)
@@ -100,15 +94,10 @@ class ProductionApplication:
         except ValueError as exc: error = HTTPError(400, "bad_request", str(exc))
         except Exception as exc:
             log_event("request_exception", "error", request_id=rid, trace_id=trace_id, method=method, path=path, error=type(exc).__name__, message=str(exc)); error = HTTPError(500, "internal_error", "internal server error")
-        status_code = error.status
         body = self.base.json({"error": {"code": error.code, "message": error.message}, "request_id": rid})
         headers = [("Content-Type", "application/json; charset=utf-8"), ("Cache-Control", "no-store"), ("X-Request-ID", rid), ("X-Trace-ID", trace_id), *error.headers, ("Content-Length", str(len(body)))]
         observed_start(f"{error.status} {STATUS.get(error.status, 'Unknown')}", headers)
         return [body]
-        
-        
-    def log_complete(self, *args, **kwargs):
-        pass
 
 
 application = ProductionApplication()
