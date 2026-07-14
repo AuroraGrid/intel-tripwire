@@ -34,7 +34,8 @@ class ProductionApplication:
         ready = all(item["ok"] for item in checks.values())
         METRICS.set("aurora_readiness", 1 if ready else 0)
         METRICS.set("aurora_healthy_workers", workers["healthy_workers"])
-        return ready, {"status": "ready" if ready else "not_ready", "checks": checks}
+        payload = {"status": "ready" if ready else "not_ready", "database": self.base.store.backend, "checks": checks}
+        return ready, payload
 
     def dispatch_admin(self, environ, user, path, method):
         parts = [part for part in path.split("/") if part]
@@ -75,8 +76,7 @@ class ProductionApplication:
                 duration = finish(code)
                 log_event("http_request", level="error" if code >= 500 else "info", request_id=rid, trace_id=trace_id, method=method, path=path, status=code, duration_seconds=round(duration, 6))
                 completed = True
-            if exc_info is None:
-                return start_response(status, headers)
+            if exc_info is None: return start_response(status, headers)
             return start_response(status, headers, exc_info)
 
         try:
