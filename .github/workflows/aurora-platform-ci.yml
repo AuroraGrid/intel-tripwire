@@ -60,7 +60,7 @@ jobs:
               except Exception:time.sleep(.5)
           else:raise SystemExit("platform API did not become healthy")
           with urllib.request.urlopen(base+"/platform",timeout=3) as response:page=response.read().decode();headers=response.headers
-          assert "AURORA Platform" in page and "Incident search" in page
+          assert "AURORA Operations Console" in page and "Global Intelligence Picture" in page
           assert headers.get("X-Content-Type-Options")=="nosniff"
           PY
       - if: failure()
