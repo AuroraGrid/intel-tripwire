@@ -1,0 +1,38 @@
+name: AURORA Phase 9-10 Qualification
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase9_*.py"
+      - "aurora-live/phase10_*.py"
+      - "aurora-live/tests/test_phase9_10_release_gates.py"
+      - ".github/workflows/aurora-phase9-10-qualification.yml"
+  schedule:
+    - cron: "17 4 * * 1,4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile qualification modules
+        run: python -m py_compile aurora-live/phase9_scale.py aurora-live/phase9_breadth_qualification.py aurora-live/phase10_release_qualification.py
+      - name: Qualify Phase 9 breadth
+        run: python aurora-live/phase9_breadth_qualification.py --min-online 50 --output phase9-live-qualification.json
+      - name: Qualify Phase 10 geographic coverage
+        run: python aurora-live/phase10_release_qualification.py --output phase10-live-qualification.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase9-10-live-qualification
+          path: |
+            phase9-live-qualification.json
+            phase10-live-qualification.json
