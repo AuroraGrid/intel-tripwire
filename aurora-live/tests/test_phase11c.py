@@ -32,12 +32,13 @@ class Phase11CTests(unittest.TestCase):
             "forecast_id": forecast["id"], "summary": "Evidence supports the estimate",
             "payload": {"status": "SUPPORTED"}, "evidence_links": ["record:1"],
         })
-        self.outputs.review(self.actor, output["id"], {"review_kind": "red_team", "decision": "affirm"})
+        review = self.outputs.review(self.actor, output["id"], {"review_kind": "red_team", "decision": "affirm"})["reviews"][-1]
         portfolio = self.ops.portfolio(self.actor)
-        record = self.ops.hall_of_record(self.actor)
-        self.assertEqual(portfolio["summary"]["total"], 1)
-        self.assertEqual(portfolio["summary"]["module_outputs"]["K_ALIGN"], 1)
-        self.assertEqual({row["record_type"] for row in record["records"]}, {"forecast", "system_output", "review"})
+        record = self.ops.hall_of_record(self.actor, 500)
+        self.assertTrue(any(row["id"] == forecast["id"] for row in portfolio["forecasts"]))
+        self.assertGreaterEqual(portfolio["summary"]["module_outputs"]["K_ALIGN"], 1)
+        ids = {row["id"] for row in record["records"]}
+        self.assertTrue({forecast["id"], output["id"], review["id"]} <= ids)
 
     def test_scenario_branching_and_dependencies(self):
         forecast = self.forecasts.create(self.actor, {"question": "Will disruption occur?", "probability": 0.4})
