@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from release_engine import ReleaseAggregator
+from phase9_engine import Phase9Aggregator
 
 
 RUNTIME_PATH = Path(os.getenv("AURORA_RUNTIME_PATH", "/data/aurora-runtime.json"))
@@ -79,6 +79,9 @@ def operational_status(snapshot: dict[str, Any], stale_after_seconds: int = 900,
         "sources_online": online,
         "sources_degraded": degraded,
         "sources": sources,
+        "registry_totals": snapshot.get("registry_totals", {}),
+        "live_totals": snapshot.get("live_totals", {}),
+        "phase9_gate": snapshot.get("phase9_gate", {}),
         "last_error": snapshot.get("last_error"),
     }
 
@@ -114,7 +117,7 @@ def enrich_incident(item: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
-class OperationalAggregator(ReleaseAggregator):
+class OperationalAggregator(Phase9Aggregator):
     def __init__(self, *args, runtime_path: str | Path | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.runtime_path = Path(runtime_path or RUNTIME_PATH)
@@ -134,16 +137,15 @@ class OperationalAggregator(ReleaseAggregator):
                 "raw_evidence_count": payload.get("raw_evidence_count", payload.get("evidence_count", 0)),
                 "duplicates_suppressed": payload.get("duplicates_suppressed", 0),
                 "sources": payload.get("sources", []),
+                "registry_totals": payload.get("registry_totals", {}),
+                "live_totals": payload.get("live_totals", {}),
+                "phase9_gate": payload.get("phase9_gate", {}),
                 "methodology": payload.get("methodology", {}),
             }
             write_runtime(snapshot, self.runtime_path)
             return payload
         except Exception as exc:
             snapshot = read_runtime(self.runtime_path)
-            snapshot.update({
-                "status": "error",
-                "recorded_at": _now().isoformat().replace("+00:00", "Z"),
-                "last_error": f"{type(exc).__name__}: {exc}"[:500],
-            })
+            snapshot.update({"status": "error", "recorded_at": _now().isoformat().replace("+00:00", "Z"), "last_error": f"{type(exc).__name__}: {exc}"[:500]})
             write_runtime(snapshot, self.runtime_path)
             raise
