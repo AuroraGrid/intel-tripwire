@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
 
+from phase10_assets import all_static_assets
 from phase10_benchmark import qualify as performance_qualify
-from phase10_catalog import catalog_summary, country_features, overpass_assets, static_assets, submarine_cables, world_bank_countries
+from phase10_catalog import country_features, overpass_assets, submarine_cables, world_bank_countries
 
 
 BASELINES = {
@@ -36,11 +38,10 @@ def _attempt(name: str, loader: Callable[[], Any], retries: int = 2) -> tuple[An
 
 
 def qualify(run_live: bool = True) -> dict[str, Any]:
-    static = static_assets()
-    static_counts = catalog_summary()["counts"]
+    static = all_static_assets()
+    counts = dict(Counter(str(row.get("type")) for row in static))
     countries, country_health = _attempt("countries", world_bank_countries)
     geometry, geometry_health = _attempt("country_geometry", country_features)
-    counts = dict(static_counts)
     health = [country_health, geometry_health]
 
     if run_live:
@@ -72,13 +73,14 @@ def qualify(run_live: bool = True) -> dict[str, Any]:
         "all_live_layers_healthy": (not run_live) or all(item["status"] == "online" for item in health if item["name"] in {"submarine_cables", "pipeline", "lng", "datacenter"}),
     }
     result = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "mode": "live" if run_live else "offline",
         "baselines": BASELINES,
         "counts": {**counts, "pipeline_lng": pipeline_lng, "country": country_count, "country_features": feature_count, "static_assets": len(static)},
         "health": health,
         "performance": performance,
         "gates": gates,
+        "verification_note": "Static reference layers are curated and versioned. Cable, pipeline, LNG and datacenter gates require live upstream data and cannot pass on fixture counts.",
     }
     result["passed"] = all(gates.values()) if run_live else all(value for key, value in gates.items() if key not in {"cables", "pipeline_lng", "datacenters", "all_live_layers_healthy"})
     return result
