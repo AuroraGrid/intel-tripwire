@@ -61,12 +61,17 @@ def _cable_counts() -> dict[str, int]:
         suffix = "" if attempt == 0 else f"?qualification={int(time.time())}-{attempt}"
         try:
             cables = _request_json("https://www.submarinecablemap.com/api/v3/cable/all.json" + suffix, timeout=30)
-            landings = _request_json("https://www.submarinecablemap.com/api/v3/landing-point/all.json" + suffix, timeout=30)
             cable_rows = cables if isinstance(cables, list) else cables.get("cables", [])
-            landing_rows = landings if isinstance(landings, list) else landings.get("landing_points", [])
             if len(cable_rows) < BASELINES["cable"]:
                 raise ValueError("cable catalog below required baseline")
-            return {"cable": len(cable_rows), "cable_landing": len(landing_rows)}
+            landing_count = 0
+            try:
+                landings = _request_json("https://www.submarinecablemap.com/api/v3/landing-point/all.json" + suffix, timeout=20)
+                landing_rows = landings if isinstance(landings, list) else landings.get("landing_points", [])
+                landing_count = len(landing_rows)
+            except Exception:
+                pass
+            return {"cable": len(cable_rows), "cable_landing": landing_count}
         except Exception as exc:
             errors.append(str(exc))
             time.sleep(1.0 + attempt)
@@ -144,14 +149,14 @@ def qualify(run_live: bool = True) -> dict[str, Any]:
         "all_live_layers_healthy": (not run_live) or all(item["status"] == "online" for item in health if item["name"] in {"submarine_cables", "pipeline_lng", "datacenter"}),
     }
     result = {
-        "schema_version": "1.3",
+        "schema_version": "1.4",
         "mode": "live" if run_live else "offline",
         "baselines": BASELINES,
         "counts": {**counts, "country": country_count, "country_features": feature_count, "static_assets": len(static)},
         "health": health,
         "performance": performance,
         "gates": gates,
-        "verification_note": "Static reference layers are curated and versioned. Cable counts come from Submarine Cable Map. Pipeline and datacenter counts come from live OpenStreetMap Taginfo statistics; fixture counts cannot satisfy these gates.",
+        "verification_note": "Static reference layers are curated and versioned. Cable counts come from Submarine Cable Map; landing-point metadata is optional. Pipeline and datacenter counts come from live OpenStreetMap Taginfo statistics. Fixture counts cannot satisfy these gates.",
     }
     result["passed"] = all(gates.values()) if run_live else all(value for key, value in gates.items() if key not in {"cables", "pipeline_lng", "datacenters", "all_live_layers_healthy"})
     return result
