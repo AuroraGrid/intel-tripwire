@@ -1,21 +1,39 @@
 from __future__ import annotations
 
+import os
 from collections import Counter
 from typing import Any
 
 import app
+from phase9_final_repairs import final_phase9_adapters as core_phase9_adapters
 from phase9_scale import catalog_summary, scaled_phase9_adapters, scaled_registry_manifest
 from release_engine import ReleaseAggregator
 
 
+def final_phase9_adapters(query: str):
+    """Keep the verified 30-source core as the default runtime path.
+
+    Additional providers are polled only when explicitly enabled. Their
+    independent health qualification remains available through the Phase 9
+    breadth workflow, so unstable secondary sites cannot degrade the core feed.
+    """
+    enabled = os.getenv("AURORA_SCALE_POLL", "0").lower() in {"1", "true", "yes"}
+    return scaled_phase9_adapters(query) if enabled else core_phase9_adapters(query)
+
+
+def final_registry_manifest(query: str = app.DEFAULT_QUERY):
+    """Patchable compatibility seam retained for existing Phase 9 tests."""
+    return scaled_registry_manifest(query)
+
+
 class Phase9Aggregator(ReleaseAggregator):
     def __init__(self, *args, **kwargs):
-        kwargs.setdefault("adapter_factory", scaled_phase9_adapters)
+        kwargs.setdefault("adapter_factory", final_phase9_adapters)
         super().__init__(*args, **kwargs)
 
     def collect(self, query: str = app.DEFAULT_QUERY, force: bool = False):
         payload = super().collect(query, force)
-        registry = scaled_registry_manifest(query)
+        registry = final_registry_manifest(query)
         registry_by_name = {item["name"]: item for item in registry}
         for source in payload.get("sources") or []:
             metadata = registry_by_name.get(source.get("source"), {})
@@ -43,21 +61,26 @@ class Phase9Aggregator(ReleaseAggregator):
             "online_capability_classes": len({item.get("capability") for item in online if item.get("capability")}),
             "records_by_capability": dict(Counter(item.get("capability") for item in online if item.get("capability"))),
         }
+        repaired_names = {
+            "AWC METAR", "AWC TAF", "ECDC News", "ENISA Cybersecurity News",
+            "IAEA News", "NATO News", "IFRC Humanitarian News",
+            "UN News Humanitarian", "WHO Disease Outbreak News",
+        }
         payload["phase9_gate"] = {
             "registry_breadth_passed": len(providers) > 65 and catalog["curated_streams"] > 500 and catalog["layers"] >= 60 and len(capabilities) >= 15,
             "live_core_passed": len(online) >= 30 and payload["live_totals"]["online_capability_classes"] >= 15,
-            "source_repair_passed": not any(item.get("source") in {"AWC METAR", "AWC TAF", "ECDC News", "ENISA Cybersecurity News", "IAEA News", "NATO News", "IFRC Humanitarian News", "UN News Humanitarian", "WHO Disease Outbreak News"} for item in degraded),
+            "source_repair_passed": not any(item.get("source") in repaired_names for item in degraded),
             "target_providers": 66,
             "target_curated_feeds": 501,
             "target_layers": 60,
             "target_capability_classes": 15,
-            "qualification_note": "Registry breadth is distinct from simultaneous polling. The core live set runs every cycle; additional providers are health-probed and polled in rotating batches.",
+            "qualification_note": "Registry breadth is distinct from simultaneous polling. The verified core runs every cycle; additional providers are independently health-probed and optionally polled in rotating batches.",
         }
         return payload
 
 
 def registry_summary(query: str = app.DEFAULT_QUERY) -> dict[str, Any]:
-    registry = scaled_registry_manifest(query)
+    registry = final_registry_manifest(query)
     catalog = catalog_summary()
     return {
         "sources": registry,
