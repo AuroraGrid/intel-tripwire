@@ -67,12 +67,96 @@ class SignalFusion:
         confidence = float(payload.get("confidence", 0.5))
         if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
-        observed_at = str(payload.get("observed_at") or now())
         external_id = str(payload.get("external_id", "")).strip() or None
         signal_id = sid("live-signal", actor["workspace_id"], provider, signal_type, external_id or secrets.token_hex(6))
+        stamp = now()
+        values = (signal_id, actor["workspace_id"], provider, signal_type, external_id, title,
+                  str(payload.get("observed_at") or stamp), payload.get("latitude"), payload.get("longitude"),
+                  confidence, dumps(payload.get("payload") or {}), stamp)
         with self.store.db() as connection:
-            connection.execute(
-                """INSERT INTO live_signals(id,workspace_id,provider,signal_type,external_id,title,observed_at,latitude,longitude,confidence,payload,created_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,provider,signal_type,external_id) DO UPDATE SET
-                title=excluded.title,observed_at=excluded.observed_at,latitude=excluded.latitude,longitude=excluded.longitude,
-                confidence=excluded.confidence,payload=excluded
+            connection.execute("""INSERT INTO live_signals(id,workspace_id,provider,signal_type,external_id,title,observed_at,latitude,longitude,confidence,payload,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,provider,signal_type,external_id) DO UPDATE SET
+            title=excluded.title,observed_at=excluded.observed_at,latitude=excluded.latitude,longitude=excluded.longitude,
+            confidence=excluded.confidence,payload=excluded.payload""", values)
+        self.store.identity.audit(actor["workspace_id"], actor["id"], "signal.ingested", "live_signal", signal_id, metadata={"provider": provider, "signal_type": signal_type})
+        return self.get(actor, signal_id)
+
+    def get(self, actor, signal_id):
+        with self.store.db() as connection:
+            row = connection.execute("SELECT * FROM live_signals WHERE id=? AND workspace_id=?", (signal_id, actor["workspace_id"])).fetchone()
+        if not row:
+            raise KeyError("signal not found")
+        item = dict(row)
+        item["payload"] = loads(item["payload"], {})
+        return item
+
+    def list(self, actor, signal_type="", provider="", limit=200):
+        sql = "SELECT id FROM live_signals WHERE workspace_id=?"
+        args = [actor["workspace_id"]]
+        if signal_type:
+            if signal_type not in SIGNAL_TYPES:
+                raise ValueError("invalid signal_type")
+            sql += " AND signal_type=?"; args.append(signal_type)
+        if provider:
+            sql += " AND provider=?"; args.append(provider.lower())
+        sql += " ORDER BY observed_at DESC LIMIT ?"; args.append(max(1, min(1000, int(limit))))
+        with self.store.db() as connection:
+            rows = connection.execute(sql, args).fetchall()
+        return [self.get(actor, row["id"]) for row in rows]
+
+    def record_health(self, actor, payload):
+        provider = str(payload.get("provider", "")).strip().lower()
+        if not provider:
+            raise ValueError("provider required")
+        checked = str(payload.get("checked_at") or now())
+        health_id = sid("provider-health", actor["workspace_id"], provider, checked, secrets.token_hex(4))
+        with self.store.db() as connection:
+            connection.execute("INSERT INTO provider_health(id,workspace_id,provider,checked_at,ok,latency_ms,records,error) VALUES(?,?,?,?,?,?,?,?)",
+                (health_id, actor["workspace_id"], provider, checked, 1 if payload.get("ok") else 0, payload.get("latency_ms"), int(payload.get("records", 0)), str(payload.get("error", ""))))
+        return {"id": health_id, "provider": provider, "checked_at": checked}
+
+    def provider_scorecard(self, actor):
+        with self.store.db() as connection:
+            rows = connection.execute("SELECT * FROM provider_health WHERE workspace_id=? ORDER BY checked_at", (actor["workspace_id"],)).fetchall()
+        grouped = {}
+        for row in rows:
+            value = dict(row); grouped.setdefault(value["provider"], []).append(value)
+        providers = []
+        for name, values in grouped.items():
+            total = len(values); ok = sum(int(v["ok"]) for v in values)
+            latencies = [float(v["latency_ms"]) for v in values if v["latency_ms"] is not None]
+            providers.append({"provider": name, "checks": total, "availability": ok / total if total else 0.0,
+                              "mean_latency_ms": sum(latencies) / len(latencies) if latencies else None,
+                              "records": sum(int(v["records"]) for v in values), "last_checked_at": values[-1]["checked_at"]})
+        return {"providers": sorted(providers, key=lambda x: x["provider"])}
+
+    def fuse(self, actor, payload):
+        signal_ids = payload.get("signal_ids") or []
+        if not isinstance(signal_ids, list) or len(signal_ids) < 2:
+            raise ValueError("signal_ids must contain at least two signals")
+        signals = [self.get(actor, value) for value in signal_ids]
+        providers = {item["provider"] for item in signals}
+        types = {item["signal_type"] for item in signals}
+        confidence = min(1.0, sum(float(item["confidence"]) for item in signals) / len(signals) + min(0.2, 0.05 * (len(providers) - 1)))
+        title = str(payload.get("title", "")).strip() or signals[0]["title"]
+        category = str(payload.get("category", "cross_domain")).strip().lower()
+        explanation = str(payload.get("explanation", "")).strip() or f"Correlated {len(signals)} signals across {len(providers)} providers and {len(types)} domains."
+        event_id = sid("fused-event", actor["workspace_id"], *signal_ids, secrets.token_hex(4))
+        with self.store.db() as connection:
+            connection.execute("INSERT INTO fused_events(id,workspace_id,title,category,confidence,signal_ids,explanation,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                (event_id, actor["workspace_id"], title, category, confidence, dumps(signal_ids), explanation, now()))
+        return self.fused(actor, event_id)
+
+    def fused(self, actor, event_id):
+        with self.store.db() as connection:
+            row = connection.execute("SELECT * FROM fused_events WHERE id=? AND workspace_id=?", (event_id, actor["workspace_id"])).fetchone()
+        if not row:
+            raise KeyError("fused event not found")
+        item = dict(row); item["signal_ids"] = loads(item["signal_ids"], [])
+        item["signals"] = [self.get(actor, signal_id) for signal_id in item["signal_ids"]]
+        return item
+
+    def fused_list(self, actor, limit=100):
+        with self.store.db() as connection:
+            rows = connection.execute("SELECT id FROM fused_events WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?", (actor["workspace_id"], max(1, min(500, int(limit))))).fetchall()
+        return [self.fused(actor, row["id"]) for row in rows]
