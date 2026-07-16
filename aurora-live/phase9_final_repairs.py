@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import os
-import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
@@ -78,35 +76,24 @@ def fetch_nato() -> list[app.Evidence]:
     return records
 
 
-def fetch_reliefweb() -> list[app.Evidence]:
-    url = "https://api.reliefweb.int/v1/reports?appname=hr185882%40gmail.com"
-    body = json.dumps({
-        "limit": 100,
-        "profile": "list",
-        "preset": "latest",
-        "fields": {"include": ["title", "url_alias", "date", "source", "country", "body-html"]},
-    }).encode("utf-8")
-    request = urllib.request.Request(url, data=body, method="POST", headers={"User-Agent": USER_AGENT, "Accept": "application/json", "Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=app.TIMEOUT) as response:
-        data = json.loads(response.read().decode("utf-8", "replace"))
-    output = []
-    for item in (data.get("data") or [])[:100]:
-        fields = item.get("fields") or {}
-        title = app.clean(fields.get("title"), 300)
-        if not title:
-            continue
-        identifier = str(item.get("id") or "")
-        link = fields.get("url_alias") or (f"https://reliefweb.int/node/{identifier}" if identifier else url)
-        date = (fields.get("date") or {}).get("created") or (fields.get("date") or {}).get("original")
-        sources = ", ".join(source.get("name", "") for source in fields.get("source") or [])
-        countries = ", ".join(country.get("name", "") for country in fields.get("country") or [])
-        summary = app.clean(f"Sources: {sources}. Countries: {countries}. {fields.get('body-html') or ''}", 500)
-        record = app.Evidence(app.stable_id("reliefweb-repaired", identifier, title), title, link, "ReliefWeb", "reliefweb.int", 1, app.parse_date(date).isoformat(), "official_report", True, summary, raw_source="ReliefWeb Reports API")
-        setattr(record, "source_origin", f"ReliefWeb:{identifier or link}")
-        output.append(record)
-    if not output:
-        raise ValueError("ReliefWeb API returned no reports")
-    return output
+def fetch_ifrc_humanitarian() -> list[app.Evidence]:
+    spec = prior.RepairedSource(
+        "IFRC Humanitarian News",
+        "International Federation of Red Cross and Red Crescent Societies",
+        "ifrc.org",
+        "humanitarian_reports",
+        "official_report",
+        "global",
+        600,
+        "IFRC terms",
+        "https://www.ifrc.org/rss.xml",
+        "feed",
+        (),
+        "https://www.ifrc.org/press-releases",
+        "html",
+    )
+    records, _ = prior.fetch_repaired_source(spec)
+    return records
 
 
 def fetch_un_humanitarian() -> list[app.Evidence]:
@@ -119,7 +106,7 @@ def fetch_un_humanitarian() -> list[app.Evidence]:
         "https://news.un.org/feed/subscribe/en/news/topic/humanitarian-aid/feed/rss.xml",
         True,
         1,
-        "https://news.un.org/feed/subscribe/en/news/topic/refugees-and-migrants/feed/rss.xml",
+        "https://news.un.org/feed/subscribe/en/news/topic/un-affairs/feed/rss.xml",
     )
 
 
@@ -127,7 +114,7 @@ FINAL_SOURCES = [
     FinalSource("BBC World News", "BBC News", "bbc.co.uk", 2, False, "multilingual_news", "news_report", "global", 300, "BBC terms", "https://feeds.bbci.co.uk/news/world/rss.xml", fetch_bbc_world),
     FinalSource("IAEA News", "International Atomic Energy Agency", "iaea.org", 1, True, "nuclear_security", "official_report", "global", 1800, "IAEA terms", "https://www.iaea.org/feeds/topnews", fetch_iaea),
     FinalSource("NATO News", "North Atlantic Treaty Organization", "nato.int", 1, True, "conflict_security", "official_release", "NATO area and global", 1800, "NATO terms", "https://www.nato.int/en/news-and-events/articles/news", fetch_nato),
-    FinalSource("ReliefWeb", "ReliefWeb", "reliefweb.int", 1, True, "humanitarian_reports", "official_report", "global", 600, "ReliefWeb and source-provider terms", "https://api.reliefweb.int/v1/reports", fetch_reliefweb),
+    FinalSource("IFRC Humanitarian News", "International Federation of Red Cross and Red Crescent Societies", "ifrc.org", 1, True, "humanitarian_reports", "official_report", "global", 600, "IFRC terms", "https://www.ifrc.org/rss.xml", fetch_ifrc_humanitarian),
     FinalSource("UN News Humanitarian", "United Nations News", "un.org", 1, True, "humanitarian_reports", "official_report", "global", 600, "UN terms", "https://news.un.org/feed/subscribe/en/news/topic/humanitarian-aid/feed/rss.xml", fetch_un_humanitarian),
 ]
 
