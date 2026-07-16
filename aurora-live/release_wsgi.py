@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import app
-from release_engine import ReleaseAggregator
+from phase8_runtime import OperationalAggregator
 
-app.AGGREGATOR = ReleaseAggregator()
+app.AGGREGATOR = OperationalAggregator()
 
-from production_wsgi import application  # noqa: E402,F401
+from phase8_wsgi import application  # noqa: E402,F401
