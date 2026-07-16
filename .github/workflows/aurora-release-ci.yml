@@ -27,8 +27,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m py_compile aurora-live/release_engine.py aurora-live/release_app.py aurora-live/release_wsgi.py aurora-live/release_worker.py aurora-live/load_test.py aurora-live/release_check.py
+      - run: python -m py_compile aurora-live/release_engine.py aurora-live/release_app.py aurora-live/release_wsgi.py aurora-live/release_worker.py aurora-live/phase8_runtime.py aurora-live/phase8_wsgi.py aurora-live/load_test.py aurora-live/release_check.py
       - run: python -m unittest discover -s aurora-live/tests -p "test_phase6.py" -v
+      - run: python -m unittest discover -s aurora-live/tests -p "test_phase8.py" -v
 
   offline-load:
     runs-on: ubuntu-latest
