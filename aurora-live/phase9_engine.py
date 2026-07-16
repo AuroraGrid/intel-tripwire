@@ -4,18 +4,18 @@ from collections import Counter
 from typing import Any
 
 import app
-from phase9_repairs import repaired_phase9_adapters, repaired_registry_manifest
+from phase9_final_repairs import final_phase9_adapters, final_registry_manifest
 from release_engine import ReleaseAggregator
 
 
 class Phase9Aggregator(ReleaseAggregator):
     def __init__(self, *args, **kwargs):
-        kwargs.setdefault("adapter_factory", repaired_phase9_adapters)
+        kwargs.setdefault("adapter_factory", final_phase9_adapters)
         super().__init__(*args, **kwargs)
 
     def collect(self, query: str = app.DEFAULT_QUERY, force: bool = False):
         payload = super().collect(query, force)
-        registry = repaired_registry_manifest(query)
+        registry = final_registry_manifest(query)
         registry_by_name = {item["name"]: item for item in registry}
         for source in payload.get("sources") or []:
             source.update({key: value for key, value in registry_by_name.get(source.get("source"), {}).items() if key not in {"name", "runtime"}})
@@ -49,7 +49,7 @@ class Phase9Aggregator(ReleaseAggregator):
 
 
 def registry_summary(query: str = app.DEFAULT_QUERY) -> dict[str, Any]:
-    registry = repaired_registry_manifest(query)
+    registry = final_registry_manifest(query)
     return {
         "sources": registry,
         "totals": {
