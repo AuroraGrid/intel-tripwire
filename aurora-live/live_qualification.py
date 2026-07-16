@@ -9,7 +9,7 @@ from pathlib import Path
 
 import app
 from phase8_runtime import OperationalAggregator, operational_status, read_runtime
-from phase9_repairs import REPAIRED_SOURCE_NAMES, repaired_phase9_adapters
+from phase9_final_repairs import FINAL_REPAIR_NAMES, final_phase9_adapters
 
 
 def now_iso() -> str:
@@ -36,18 +36,17 @@ def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_cap
     online = [row for row in source_rows if row.get("status") == "online"]
     degraded = [row for row in source_rows if row.get("status") != "online"]
     capabilities = {row.get("capability") for row in online if row.get("capability")}
-    expected = len(repaired_phase9_adapters(app.DEFAULT_QUERY))
+    expected = len(final_phase9_adapters(app.DEFAULT_QUERY))
     registry_totals = snapshot.get("registry_totals") or {}
     registry_passed = int(registry_totals.get("adapters") or 0) >= 25 and int(registry_totals.get("capability_classes") or 0) >= 8
     live_passed = len(online) >= max(1, int(minimum_online)) and len(capabilities) >= max(1, int(minimum_capabilities))
-    repaired_online = {row.get("source") for row in online if row.get("source") in REPAIRED_SOURCE_NAMES}
-    repaired_degraded = [row for row in degraded if row.get("source") in REPAIRED_SOURCE_NAMES]
-    repair_passed = not require_repairs or (repaired_online == REPAIRED_SOURCE_NAMES and not repaired_degraded)
+    repaired_online = {row.get("source") for row in online if row.get("source") in FINAL_REPAIR_NAMES}
+    repair_passed = not require_repairs or (repaired_online == FINAL_REPAIR_NAMES and not degraded)
 
     passed = bool(
         payload
         and snapshot.get("status") == "ok"
-        and snapshot.get("mode") in {"live", "live_degraded"}
+        and snapshot.get("mode") == "live"
         and not any(row.get("status") == "offline_fallback" for row in source_rows)
         and registry_passed
         and live_passed
@@ -57,7 +56,7 @@ def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_cap
         and not status.get("stale")
     )
     result = {
-        "schema_version": "2.1",
+        "schema_version": "2.2",
         "qualified_at": now_iso(),
         "passed": passed,
         "registry_breadth_passed": registry_passed,
@@ -69,7 +68,7 @@ def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_cap
         "online_sources": [row.get("source") for row in online],
         "online_capabilities": sorted(capabilities),
         "repaired_sources_online": sorted(repaired_online),
-        "repaired_sources_expected": sorted(REPAIRED_SOURCE_NAMES),
+        "repaired_sources_expected": sorted(FINAL_REPAIR_NAMES),
         "degraded_sources": [{"source": row.get("source"), "status": row.get("status"), "error": row.get("error")} for row in degraded],
         "registry_totals": registry_totals,
         "mode": snapshot.get("mode"),
