@@ -19,14 +19,17 @@ class Phase8Application:
         self.store = self.platform.store
         self.runtime_path = Path(runtime_path or os.getenv("AURORA_RUNTIME_PATH", "/data/aurora-runtime.json"))
         self.dashboard_path = Path(dashboard_path or ROOT / "static" / "platform.html")
+        self.enhancement_path = ROOT / "static" / "phase8.js"
         self.stale_after = max(30, int(os.getenv("AURORA_STALE_AFTER_SECONDS", "900")))
 
     def _html(self, environ, start_response, rid):
         self.platform.origin(environ)
         try:
-            body = self.dashboard_path.read_bytes()
+            page = self.dashboard_path.read_text(encoding="utf-8")
+            enhancement = self.enhancement_path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:
             raise HTTPError(404, "not_found", "dashboard not found") from exc
+        body = page.replace("</body>", f"<script>{enhancement}</script></body>").encode("utf-8")
         headers = [
             ("Content-Type", "text/html; charset=utf-8"),
             *self.platform.security_headers(environ, rid, "public, max-age=60"),
