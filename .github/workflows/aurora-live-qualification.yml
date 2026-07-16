@@ -1,0 +1,30 @@
+name: AURORA Live Qualification
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/**"
+      - ".github/workflows/aurora-live-qualification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify-live-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run live upstream qualification
+        run: python aurora-live/live_qualification.py --output /tmp/aurora-runtime.json --retries 3 --minimum-online 4
+      - name: Upload qualification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-live-qualification
+          path: /tmp/aurora-runtime.json
+          if-no-files-found: warn
