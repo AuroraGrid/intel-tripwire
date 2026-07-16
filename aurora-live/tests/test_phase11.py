@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -14,7 +15,8 @@ class Phase11Tests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.temp.name) / "phase11.db")
-        self.user, self.token = self.store.create_user("analyst@example.com", "analyst")
+        email = f"analyst-{uuid.uuid4().hex}@example.com"
+        self.user, self.token = self.store.create_user(email, "analyst")
         self.actor = self.store.auth(self.token)
         self.ledger = ForecastLedger(self.store)
 
