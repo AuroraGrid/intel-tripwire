@@ -26,7 +26,7 @@ jobs:
       - name: Compile qualification modules
         run: python -m py_compile aurora-live/phase9_scale.py aurora-live/phase9_breadth_qualification.py aurora-live/phase10_release_qualification.py
       - name: Qualify Phase 9 breadth
-        run: python aurora-live/phase9_breadth_qualification.py --min-online 50 --output phase9-live-qualification.json
+        run: python aurora-live/phase9_breadth_qualification.py --min-expansion-online 41 --output phase9-live-qualification.json
       - name: Qualify Phase 10 geographic coverage
         run: python aurora-live/phase10_release_qualification.py --output phase10-live-qualification.json
       - uses: actions/upload-artifact@v4
