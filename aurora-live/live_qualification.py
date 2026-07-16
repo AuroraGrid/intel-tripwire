@@ -7,16 +7,16 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phase8_runtime import OperationalAggregator, operational_status, read_runtime
-from phase9_sources import phase9_adapters
 import app
+from phase8_runtime import OperationalAggregator, operational_status, read_runtime
+from phase9_repairs import REPAIRED_SOURCE_NAMES, repaired_phase9_adapters
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_capabilities: int = 8) -> dict:
+def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_capabilities: int = 8, require_repairs: bool = True) -> dict:
     os.environ.pop("AURORA_OFFLINE", None)
     target = Path(output)
     last_error = None
@@ -36,10 +36,13 @@ def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_cap
     online = [row for row in source_rows if row.get("status") == "online"]
     degraded = [row for row in source_rows if row.get("status") != "online"]
     capabilities = {row.get("capability") for row in online if row.get("capability")}
-    expected = len(phase9_adapters(app.DEFAULT_QUERY))
+    expected = len(repaired_phase9_adapters(app.DEFAULT_QUERY))
     registry_totals = snapshot.get("registry_totals") or {}
     registry_passed = int(registry_totals.get("adapters") or 0) >= 25 and int(registry_totals.get("capability_classes") or 0) >= 8
     live_passed = len(online) >= max(1, int(minimum_online)) and len(capabilities) >= max(1, int(minimum_capabilities))
+    repaired_online = {row.get("source") for row in online if row.get("source") in REPAIRED_SOURCE_NAMES}
+    repaired_degraded = [row for row in degraded if row.get("source") in REPAIRED_SOURCE_NAMES]
+    repair_passed = not require_repairs or (repaired_online == REPAIRED_SOURCE_NAMES and not repaired_degraded)
 
     passed = bool(
         payload
@@ -48,21 +51,25 @@ def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_cap
         and not any(row.get("status") == "offline_fallback" for row in source_rows)
         and registry_passed
         and live_passed
+        and repair_passed
         and int(snapshot.get("event_count") or 0) > 0
         and int(snapshot.get("evidence_count") or 0) > 0
         and not status.get("stale")
     )
     result = {
-        "schema_version": "2.0",
+        "schema_version": "2.1",
         "qualified_at": now_iso(),
         "passed": passed,
         "registry_breadth_passed": registry_passed,
         "live_breadth_passed": live_passed,
+        "source_repair_passed": repair_passed,
         "expected_sources": expected,
         "minimum_online": max(1, int(minimum_online)),
         "minimum_capabilities": max(1, int(minimum_capabilities)),
         "online_sources": [row.get("source") for row in online],
         "online_capabilities": sorted(capabilities),
+        "repaired_sources_online": sorted(repaired_online),
+        "repaired_sources_expected": sorted(REPAIRED_SOURCE_NAMES),
         "degraded_sources": [{"source": row.get("source"), "status": row.get("status"), "error": row.get("error")} for row in degraded],
         "registry_totals": registry_totals,
         "mode": snapshot.get("mode"),
@@ -82,8 +89,9 @@ def main() -> None:
     parser.add_argument("--retries", type=int, default=2)
     parser.add_argument("--minimum-online", type=int, default=12)
     parser.add_argument("--minimum-capabilities", type=int, default=8)
+    parser.add_argument("--allow-degraded-repairs", action="store_true")
     args = parser.parse_args()
-    result = qualify(args.output, args.retries, args.minimum_online, args.minimum_capabilities)
+    result = qualify(args.output, args.retries, args.minimum_online, args.minimum_capabilities, not args.allow_degraded_repairs)
     raise SystemExit(0 if result["passed"] else 1)
 
 
