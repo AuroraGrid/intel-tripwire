@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 from phase8_runtime import enrich_incident, operational_status, read_runtime
+from phase9_engine import registry_summary
 from platform_wsgi import HTTPError, RID_RE, STATUS
 from production_wsgi import ProductionApplication
 
@@ -30,11 +31,7 @@ class Phase8Application:
         except FileNotFoundError as exc:
             raise HTTPError(404, "not_found", "dashboard not found") from exc
         body = page.replace("</body>", f"<script>{enhancement}</script></body>").encode("utf-8")
-        headers = [
-            ("Content-Type", "text/html; charset=utf-8"),
-            *self.platform.security_headers(environ, rid, "public, max-age=60"),
-            ("Content-Length", str(len(body))),
-        ]
+        headers = [("Content-Type", "text/html; charset=utf-8"), *self.platform.security_headers(environ, rid, "public, max-age=60"), ("Content-Length", str(len(body)))]
         start_response("200 OK", headers)
         return [body]
 
@@ -56,25 +53,14 @@ class Phase8Application:
         workspace_id = user.get("workspace_id")
         incident = enrich_incident(self.store.incident(incident_id, True, workspace_id))
         cases = self.platform.ops.cases(user["id"], workspace_id)
-        return {
-            "incident": incident,
-            "timeline": self.store.timeline(incident_id, workspace_id),
-            "graph": self.store.graph(incident_id, workspace_id),
-            "cases": [{key: case.get(key) for key in ("id", "title", "status", "priority")} for case in cases],
-        }
+        return {"incident": incident, "timeline": self.store.timeline(incident_id, workspace_id), "graph": self.store.graph(incident_id, workspace_id), "cases": [{key: case.get(key) for key in ("id", "title", "status", "priority")} for case in cases]}
 
     def _response(self, environ, start_response, status, value, rid):
         return self.base.response(environ, start_response, status, value, rid, rid)
 
     def _error(self, environ, start_response, rid, error):
         body = self.platform.json({"error": {"code": error.code, "message": error.message}, "request_id": rid})
-        headers = [
-            ("Content-Type", "application/json; charset=utf-8"),
-            ("Cache-Control", "no-store"),
-            ("X-Request-ID", rid),
-            *error.headers,
-            ("Content-Length", str(len(body))),
-        ]
+        headers = [("Content-Type", "application/json; charset=utf-8"), ("Cache-Control", "no-store"), ("X-Request-ID", rid), *error.headers, ("Content-Length", str(len(body)))]
         start_response(f"{error.status} {STATUS.get(error.status, 'Unknown')}", headers)
         return [body]
 
@@ -83,7 +69,7 @@ class Phase8Application:
         method = str(environ.get("REQUEST_METHOD") or "GET").upper()
         supplied = str(environ.get("HTTP_X_REQUEST_ID") or "")
         rid = supplied if RID_RE.fullmatch(supplied) else uuid.uuid4().hex
-        managed = path in {"/platform", "/platform/", "/api/platform/operations-status"} or path.endswith("/bundle")
+        managed = path in {"/platform", "/platform/", "/api/platform/operations-status", "/api/platform/source-registry"} or path.endswith("/bundle")
         if not managed:
             return self.base(environ, start_response)
         try:
@@ -92,6 +78,8 @@ class Phase8Application:
             user = self._user(environ)
             if method == "GET" and path == "/api/platform/operations-status":
                 return self._response(environ, start_response, 200, self._status(user), rid)
+            if method == "GET" and path == "/api/platform/source-registry":
+                return self._response(environ, start_response, 200, registry_summary(), rid)
             parts = [part for part in path.split("/") if part]
             if method == "GET" and len(parts) == 5 and parts[:3] == ["api", "platform", "incidents"] and parts[4] == "bundle":
                 return self._response(environ, start_response, 200, self._bundle(user, parts[3]), rid)
