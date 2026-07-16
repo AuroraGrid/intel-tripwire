@@ -58,19 +58,11 @@ def fetch_iaea() -> list[app.Evidence]:
 
 def fetch_nato() -> list[app.Evidence]:
     spec = prior.RepairedSource(
-        "NATO News",
-        "North Atlantic Treaty Organization",
-        "nato.int",
-        "conflict_security",
-        "official_release",
-        "NATO area and global",
-        1800,
-        "NATO terms",
-        "https://www.nato.int/en/news-and-events/articles/news",
-        "html",
-        ("/en/news-and-events/", "/cps/en/natohq/"),
-        "https://www.nato.int/cps/en/natohq/news.htm",
-        "html",
+        "NATO News", "North Atlantic Treaty Organization", "nato.int",
+        "conflict_security", "official_release", "NATO area and global",
+        1800, "NATO terms", "https://www.nato.int/en/news-and-events/articles/news",
+        "html", ("/en/news-and-events/", "/cps/en/natohq/"),
+        "https://www.nato.int/cps/en/natohq/news.htm", "html",
     )
     records, _ = prior.fetch_repaired_source(spec)
     return records
@@ -80,17 +72,9 @@ def fetch_ifrc_humanitarian() -> list[app.Evidence]:
     spec = prior.RepairedSource(
         "IFRC Humanitarian News",
         "International Federation of Red Cross and Red Crescent Societies",
-        "ifrc.org",
-        "humanitarian_reports",
-        "official_report",
-        "global",
-        600,
-        "IFRC terms",
-        "https://www.ifrc.org/rss.xml",
-        "feed",
-        (),
-        "https://www.ifrc.org/press-releases",
-        "html",
+        "ifrc.org", "humanitarian_reports", "official_report", "global", 600,
+        "IFRC terms", "https://www.ifrc.org/rss.xml", "feed", (),
+        "https://www.ifrc.org/press-releases", "html",
     )
     records, _ = prior.fetch_repaired_source(spec)
     return records
@@ -98,14 +82,20 @@ def fetch_ifrc_humanitarian() -> list[app.Evidence]:
 
 def fetch_un_humanitarian() -> list[app.Evidence]:
     return _feed_records(
-        "UN News Humanitarian",
-        "United Nations News",
-        "un.org",
-        "humanitarian_reports",
-        "official_report",
+        "UN News Humanitarian", "United Nations News", "un.org",
+        "humanitarian_reports", "official_report",
         "https://news.un.org/feed/subscribe/en/news/topic/humanitarian-aid/feed/rss.xml",
-        True,
-        1,
+        True, 1,
+        "https://news.un.org/feed/subscribe/en/news/topic/un-affairs/feed/rss.xml",
+    )
+
+
+def fetch_un_peace() -> list[app.Evidence]:
+    return _feed_records(
+        "UN News Peace and Security", "United Nations News", "un.org",
+        "conflict_security", "official_report",
+        "https://news.un.org/feed/subscribe/en/news/topic/peace-and-security/feed/rss.xml",
+        True, 1,
         "https://news.un.org/feed/subscribe/en/news/topic/un-affairs/feed/rss.xml",
     )
 
@@ -116,9 +106,10 @@ FINAL_SOURCES = [
     FinalSource("NATO News", "North Atlantic Treaty Organization", "nato.int", 1, True, "conflict_security", "official_release", "NATO area and global", 1800, "NATO terms", "https://www.nato.int/en/news-and-events/articles/news", fetch_nato),
     FinalSource("IFRC Humanitarian News", "International Federation of Red Cross and Red Crescent Societies", "ifrc.org", 1, True, "humanitarian_reports", "official_report", "global", 600, "IFRC terms", "https://www.ifrc.org/rss.xml", fetch_ifrc_humanitarian),
     FinalSource("UN News Humanitarian", "United Nations News", "un.org", 1, True, "humanitarian_reports", "official_report", "global", 600, "UN terms", "https://news.un.org/feed/subscribe/en/news/topic/humanitarian-aid/feed/rss.xml", fetch_un_humanitarian),
+    FinalSource("UN News Peace and Security", "United Nations News", "un.org", 1, True, "conflict_security", "official_report", "global", 600, "UN terms", "https://news.un.org/feed/subscribe/en/news/topic/peace-and-security/feed/rss.xml", fetch_un_peace),
 ]
 
-REPLACED_NAMES = frozenset({"GDELT", "IAEA News", "NATO News", "ReliefWeb", "UN News Humanitarian"})
+REPLACED_NAMES = frozenset({"GDELT", "IAEA News", "NATO News", "ReliefWeb", "UN News Humanitarian", "UN News Peace and Security"})
 FINAL_REPAIR_NAMES = frozenset(source.name for source in FINAL_SOURCES)
 
 
