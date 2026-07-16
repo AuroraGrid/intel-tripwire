@@ -1,0 +1,68 @@
+name: AURORA Live Qualification
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/**"
+      - ".github/workflows/aurora-live-qualification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify-live-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Collect Phase 9 live qualification
+        continue-on-error: true
+        run: python aurora-live/live_qualification.py --output /tmp/aurora-runtime.json --retries 3 --minimum-online 12 --minimum-capabilities 8 > /tmp/qualification-output.json
+      - name: Summarize and enforce qualification gate
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          runtime_path = Path('/tmp/aurora-runtime.json')
+          output_path = Path('/tmp/qualification-output.json')
+          runtime = json.loads(runtime_path.read_text()) if runtime_path.exists() else {}
+          try:
+              result = json.loads(output_path.read_text()) if output_path.exists() and output_path.read_text().strip() else {}
+          except json.JSONDecodeError:
+              result = {}
+          sources = runtime.get('sources') or []
+          online = [source.get('source') for source in sources if source.get('status') == 'online']
+          degraded = [source.get('source') for source in sources if source.get('status') != 'online']
+          summary = {
+              'passed': bool(result.get('passed')),
+              'registry_breadth_passed': bool(result.get('registry_breadth_passed')),
+              'live_breadth_passed': bool(result.get('live_breadth_passed')),
+              'mode': runtime.get('mode'),
+              'event_count': runtime.get('event_count', 0),
+              'evidence_count': runtime.get('evidence_count', 0),
+              'online_sources': online,
+              'online_capabilities': result.get('online_capabilities', []),
+              'non_online_sources': degraded,
+              'registry_totals': runtime.get('registry_totals', {}),
+              'last_error': runtime.get('last_error'),
+          }
+          Path('/tmp/qualification-summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True))
+          print(json.dumps(summary, sort_keys=True))
+          if not summary['passed']:
+              raise SystemExit('Phase 9 live qualification gate failed')
+          PY
+      - name: Upload qualification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-live-qualification
+          path: |
+            /tmp/aurora-runtime.json
+            /tmp/qualification-output.json
+            /tmp/qualification-summary.json
+          if-no-files-found: warn

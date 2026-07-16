@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import app
-from release_engine import ReleaseAggregator
+from phase8_runtime import OperationalAggregator
 
-app.AGGREGATOR = ReleaseAggregator()
+app.AGGREGATOR = OperationalAggregator()
 
 from worker import main
 

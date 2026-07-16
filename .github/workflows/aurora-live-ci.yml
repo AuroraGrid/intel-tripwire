@@ -44,7 +44,23 @@ jobs:
         run: python -m py_compile aurora-live/app.py
 
       - name: Run evidence-model tests
-        run: python -m unittest discover -s aurora-live/tests -p "test_*.py" -v
+        shell: bash
+        run: |
+          set +e
+          python -m unittest discover -s aurora-live/tests -p "test_*.py" -v 2>&1 | tee /tmp/aurora-tests-${{ matrix.python-version }}.log
+          status=${PIPESTATUS[0]}
+          echo "$status" > /tmp/aurora-tests-${{ matrix.python-version }}.status
+          exit "$status"
+
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-live-tests-${{ matrix.python-version }}
+          path: |
+            /tmp/aurora-tests-${{ matrix.python-version }}.log
+            /tmp/aurora-tests-${{ matrix.python-version }}.status
+          if-no-files-found: warn
 
       - name: Start offline server
         run: |
