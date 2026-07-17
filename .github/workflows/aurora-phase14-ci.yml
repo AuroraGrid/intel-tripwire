@@ -1,0 +1,29 @@
+name: AURORA Phase 14 CI
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase14_*.py"
+      - "aurora-live/tests/test_phase14.py"
+      - "aurora-live/release_wsgi.py"
+      - ".github/workflows/aurora-phase14-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - run: python -m py_compile aurora-live/phase14_integrity.py aurora-live/phase14_complete.py aurora-live/release_wsgi.py
+      - run: python -m unittest discover -s aurora-live/tests -p "test_phase14.py" -v
