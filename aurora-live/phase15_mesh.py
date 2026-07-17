@@ -63,7 +63,11 @@ class SensorMesh:
             """)
 
     def _workspace(self, actor=None) -> str:
-        return self.store.workspace_id(actor_user_id=actor) if hasattr(self.store, "workspace_id") else "default"
+        if isinstance(actor, dict) and actor.get("workspace_id"):
+            return str(actor["workspace_id"])
+        if isinstance(actor, str) and actor:
+            return self.store.workspace_id(actor)
+        return self.store.identity.default_workspace
 
     def _seed(self) -> None:
         workspace_id = self._workspace()
@@ -110,8 +114,7 @@ class SensorMesh:
                 transport=excluded.transport,authority=excluded.authority,enabled=excluded.enabled,configuration=excluded.configuration,updated_at=excluded.updated_at""",
                 (sensor_id, workspace_id, domain, provider, payload.get("transport", "https"), payload.get("authority", "secondary"), int(bool(payload.get("enabled", True))), configuration, timestamp, timestamp),
             )
-        if hasattr(self.store, "identity"):
-            self.store.identity.audit(workspace_id, actor, "sensor.registered", "sensor", sensor_id)
+        self.store.identity.audit(workspace_id, actor["id"], "sensor.registered", "sensor", sensor_id)
         return next(item for item in self.sensors(actor) if item["id"] == sensor_id)
 
     def record_health(self, actor, sensor_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -174,8 +177,7 @@ class SensorMesh:
                         duplicates += 1
                     else:
                         raise
-        if hasattr(self.store, "identity"):
-            self.store.identity.audit(workspace_id, actor, "sensor.ingest", "sensor", sensor_id, metadata={"accepted": accepted, "duplicates": duplicates, "rejected": rejected})
+        self.store.identity.audit(workspace_id, actor["id"], "sensor.ingest", "sensor", sensor_id, metadata={"accepted": accepted, "duplicates": duplicates, "rejected": rejected})
         return {"sensor_id": sensor_id, "accepted": accepted, "duplicates_suppressed": duplicates, "rejected": rejected}
 
     def observations(self, actor=None, domain="", limit=100) -> list[dict[str, Any]]:
@@ -212,15 +214,4 @@ class SensorMesh:
                 else: unknown += 1
         denominator = max(1, len(sensors))
         readiness = round((len(enabled) / denominator) * 50 + (live / denominator) * 50, 1)
-        return {
-            "phase": 15,
-            "domains_registered": len(domains),
-            "sensors_registered": len(sensors),
-            "sensors_enabled": len(enabled),
-            "live": live,
-            "degraded": degraded,
-            "offline": offline,
-            "unknown": unknown,
-            "mesh_readiness_score": readiness,
-            "domains": domains,
-        }
+        return {"phase": 15, "domains_registered": len(domains), "sensors_registered": len(sensors), "sensors_enabled": len(enabled), "live": live, "degraded": degraded, "offline": offline, "unknown": unknown, "mesh_readiness_score": readiness, "domains": domains}
