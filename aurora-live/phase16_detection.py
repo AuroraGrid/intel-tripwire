@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,7 +19,5 @@ def normalize(value: Any) -> str:
     return " ".join(text.split())
 
 
-class DetectionCorrelationEngine:
-    """Workspace-safe observation clustering, corroboration, contradiction, and review state."""
-
-    ACTION_STATES = {"MONITOR", "WAIT", "INVESTIGATE
+def tokens(value: Any) -> set[str]:
+   
