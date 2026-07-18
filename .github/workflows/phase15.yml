@@ -12,15 +12,4 @@ on:
       - main
     paths:
       - "aurora-live/phase15_*.py"
-      - "aurora-live/release_wsgi.py"
-      - "aurora-live/tests/test_phase15.py"
-      - ".github/workflows/phase15.yml"
-
-permissions:
-  contents: read
-
-jobs:
-  phase15:
-    runs-on: ubuntu-latest
-    strategy:
-     
+      - "aurora-live/release_wsgi
