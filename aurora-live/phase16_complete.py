@@ -39,10 +39,10 @@ class Phase16Application(Phase15Application):
                 self.store.identity.require(actor, "write")
                 payload = body()
                 return 200, self.detection.reassess(actor, detection_id, payload.get("reason", "Manual reassessment"))
-        if len(parts) == 5 and parts[:4] == ["api", "platform", "observations"] and parts[4] and method == "POST":
+        if len(parts) == 4 and parts[:3] == ["api", "platform", "observations"] and method == "POST":
             self.store.identity.require(actor, "write")
             payload = body()
-            return 200, self.detection.correlate(actor, parts[4], bool(payload.get("force_new", False)))
+            return 200, self.detection.correlate(actor, parts[3], bool(payload.get("force_new", False)))
         raise HTTPError(404, "not_found", "route not found")
 
     def __call__(self, environ, start_response):
