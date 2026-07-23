@@ -115,4 +115,3 @@ class Phase26Application(Phase25Application):
 
 
 application = Phase26Application()
-
