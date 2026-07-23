@@ -25,5 +25,5 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -r aurora-live/requirements.txt
-      - run: python -m py_compile aurora-live/phase16_detection.py aurora-live/phase16_complete.py aurora-live/release_wsgi.py
+      - run: python -m py_compile aurora-live/phase16_detection.py aurora-live/phase16_synchronized.py aurora-live/phase16_complete.py aurora-live/release_wsgi.py
       - run: python -m unittest discover -s aurora-live/tests -p "test_phase16.py" -v
