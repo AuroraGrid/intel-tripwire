@@ -57,8 +57,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      aurora-platform:
-        condition: service_healthy
     environment:
       <<: *aurora-environment
       AURORA_REFRESH_INTERVAL_SECONDS: ${AURORA_REFRESH_INTERVAL_SECONDS:-300}
