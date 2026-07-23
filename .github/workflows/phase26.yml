@@ -1,0 +1,87 @@
+name: AURORA Phase 26 Production Operations
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase25_*.py"
+      - "aurora-live/phase26_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase26.py"
+      - "aurora-live/docker-compose.public.yml"
+      - "aurora-live/docker-compose.onprem.yml"
+      - "aurora-live/deploy/phase26/**"
+      - "aurora-live/.env.production.example"
+      - ".github/workflows/phase26.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aurora-live/phase26_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase26.py"
+      - "aurora-live/docker-compose.public.yml"
+      - "aurora-live/docker-compose.onprem.yml"
+      - "aurora-live/deploy/phase26/**"
+      - ".github/workflows/phase26.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase26:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile production release
+        run: >-
+          python -m py_compile
+          aurora-live/phase26_operations.py
+          aurora-live/phase26_complete.py
+          aurora-live/release_wsgi.py
+      - name: Verify release imports
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "import phase26_operations, phase26_complete, release_wsgi"
+      - name: Run Phase 26 tests
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase26.py" -v
+
+  deployment-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install pyyaml
+      - name: Validate Kubernetes YAML
+        run: >-
+          python -c "import pathlib,yaml;
+          p=pathlib.Path('aurora-live/deploy/phase26/kubernetes.yaml');
+          docs=list(yaml.safe_load_all(p.read_text()));
+          assert len(docs)>=8;
+          assert all(isinstance(d,dict) and d.get('kind') for d in docs)"
+      - name: Validate public Compose
+        working-directory: aurora-live
+        env:
+          AURORA_PUBLIC_HOST: aurora.example.com
+          POSTGRES_PASSWORD: validation-only
+          AURORA_BOOTSTRAP_SECRET: validation-only
+          AURORA_WEBHOOK_SECRET: validation-only
+        run: docker compose -f docker-compose.public.yml config --quiet
+      - name: Validate on-premises Compose
+        working-directory: aurora-live
+        env:
+          POSTGRES_PASSWORD: validation-only
+          AURORA_BOOTSTRAP_SECRET: validation-only
+          AURORA_WEBHOOK_SECRET: validation-only
+        run: docker compose -f docker-compose.onprem.yml config --quiet
+
