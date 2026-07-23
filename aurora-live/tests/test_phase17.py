@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from phase14_integrity import EvidenceIntegrity
 from phase15_mesh import SensorMesh
-from phase16_detection import DetectionEngine
+from phase16_synchronized import DetectionEngine
 from phase17_fabric import RealtimeFabric
 from storage import Store
 
