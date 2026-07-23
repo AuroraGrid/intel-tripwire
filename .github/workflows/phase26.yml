@@ -84,4 +84,3 @@ jobs:
           AURORA_BOOTSTRAP_SECRET: validation-only
           AURORA_WEBHOOK_SECRET: validation-only
         run: docker compose -f docker-compose.onprem.yml config --quiet
-
