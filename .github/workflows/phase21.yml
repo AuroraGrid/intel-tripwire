@@ -1,0 +1,55 @@
+name: AURORA Phase 21 CI
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase20_*.py"
+      - "aurora-live/phase21_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/release_worker.py"
+      - "aurora-live/tests/test_phase20.py"
+      - "aurora-live/tests/test_phase21.py"
+      - ".github/workflows/phase21.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aurora-live/phase21_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/release_worker.py"
+      - "aurora-live/tests/test_phase21.py"
+      - ".github/workflows/phase21.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile Phase 21 release chain
+        run: >
+          python -m py_compile
+          aurora-live/phase21_routes.py
+          aurora-live/phase21_complete.py
+          aurora-live/phase21_worker.py
+          aurora-live/release_wsgi.py
+          aurora-live/release_worker.py
+      - name: Verify release imports
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "import phase21_complete, phase21_worker, release_wsgi, release_worker"
+      - name: Run Phase 21 qualification
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase21.py" -v
+      - name: Run Phase 20 regression
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase20.py" -v
