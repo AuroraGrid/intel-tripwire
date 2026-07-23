@@ -53,9 +53,15 @@ class Connection:
         self.backend = backend
 
     def _sql(self, sql: str) -> str:
-        if self.backend == "postgres":
-            return sql.replace("?", "%s")
-        return sql
+        if self.backend != "postgres":
+            return sql
+        translated = re.sub(
+            r"\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b",
+            "BIGSERIAL PRIMARY KEY",
+            sql,
+            flags=re.IGNORECASE,
+        )
+        return translated.replace("?", "%s")
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> CursorResult:
         try:
