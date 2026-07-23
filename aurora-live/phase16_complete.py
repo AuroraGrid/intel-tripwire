@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from phase15_complete import Phase15Application
-from phase16_detection import DetectionEngine
+from phase16_synchronized import DetectionEngine
 from platform_wsgi import HTTPError, RID_RE
 
 
