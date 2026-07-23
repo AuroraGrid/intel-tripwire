@@ -3,6 +3,13 @@ name: AURORA Phase 26 Manual Smoke Gate
 on:
   issue_comment:
     types: [created]
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/phase26-manual-smoke.yml"
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,9 +19,12 @@ permissions:
 jobs:
   smoke:
     if: >-
-      github.event.issue.pull_request &&
-      github.event.comment.user.login == 'hr185882-creator' &&
-      github.event.comment.body == '/phase26-smoke'
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request &&
+       github.event.comment.user.login == 'hr185882-creator' &&
+       github.event.comment.body == '/phase26-smoke')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -27,12 +37,19 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const pullNumber = context.eventName === 'issue_comment'
+              ? context.issue.number
+              : 44;
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number,
+              pull_number: pullNumber,
             });
             const expectedRepo = `${context.repo.owner}/${context.repo.repo}`;
+            if (pr.state !== 'open') {
+              core.setFailed(`Pull request ${pullNumber} is not open`);
+              return;
+            }
             if (pr.head.repo.full_name !== expectedRepo) {
               core.setFailed(`Refusing fork head ${pr.head.repo.full_name}`);
               return;
@@ -140,6 +157,10 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         with:
           script: |
+            if (!process.env.HEAD_SHA) {
+              core.warning('No pull request head SHA was resolved; status was not published.');
+              return;
+            }
             const passed = process.env.JOB_STATUS === 'success';
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
