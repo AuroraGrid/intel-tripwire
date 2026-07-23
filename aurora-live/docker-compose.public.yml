@@ -92,4 +92,3 @@ volumes:
   aurora-public-postgres:
   aurora-public-caddy-data:
   aurora-public-caddy-config:
-
