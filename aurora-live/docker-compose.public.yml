@@ -45,7 +45,7 @@ services:
         - CMD
         - python
         - -c
-        - "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8090/api/platform/ready',timeout=3)); assert d['status']=='ready'"
+        - "import json,os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8090/api/platform/ready',headers={'Host':os.environ['AURORA_PUBLIC_HOST']}); d=json.load(urllib.request.urlopen(r,timeout=3)); assert d['status']=='ready'"
       interval: 20s
       timeout: 5s
       retries: 5
