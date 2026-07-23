@@ -40,7 +40,7 @@ jobs:
           import urllib.error
           import urllib.request
 
-          deadline = time.monotonic() + 180
+          deadline = time.monotonic() + 60
           last_error = None
           while time.monotonic() < deadline:
               try:
@@ -75,22 +75,42 @@ jobs:
                   urllib.error.URLError,
               ) as exc:
                   last_error = exc
+                  print(f"smoke retry: {type(exc).__name__}: {exc}", flush=True)
                   time.sleep(5)
           else:
               raise AssertionError(
                   f"deployment did not become healthy before timeout: {last_error}"
               )
           PY
-      - name: Show container state on failure
-        if: failure()
+      - name: Capture smoke diagnostics
+        if: always()
         working-directory: aurora-live
         env:
           POSTGRES_PASSWORD: phase26-smoke-password
           AURORA_BOOTSTRAP_SECRET: phase26-smoke-bootstrap
           AURORA_WEBHOOK_SECRET: phase26-smoke-webhook
         run: |
-          docker compose -f docker-compose.onprem.yml ps
-          docker compose -f docker-compose.onprem.yml logs --no-color
+          mkdir -p /tmp/phase26-diagnostics
+          docker compose -f docker-compose.onprem.yml ps -a > /tmp/phase26-diagnostics/compose-ps.txt 2>&1 || true
+          docker compose -f docker-compose.onprem.yml logs --no-color > /tmp/phase26-diagnostics/compose-logs.txt 2>&1 || true
+          python - <<'PY' > /tmp/phase26-diagnostics/endpoints.txt 2>&1 || true
+          import urllib.request
+          for endpoint in ("live", "ready"):
+              try:
+                  with urllib.request.urlopen(
+                      f"http://127.0.0.1:8090/api/platform/{endpoint}", timeout=5
+                  ) as response:
+                      print(endpoint, response.status, response.read().decode())
+              except Exception as exc:
+                  print(endpoint, type(exc).__name__, exc)
+          PY
+      - name: Upload smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase26-smoke-diagnostics
+          path: /tmp/phase26-diagnostics
+          if-no-files-found: error
       - name: Stop on-premises deployment
         if: always()
         working-directory: aurora-live
