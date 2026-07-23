@@ -4,7 +4,7 @@ import os
 
 from phase14_integrity import EvidenceIntegrity
 from phase15_mesh import SensorMesh
-from phase16_detection import DetectionEngine
+from phase16_synchronized import DetectionEngine
 from phase17_fabric import RealtimeFabric
 from phase17_worker import Phase17Worker
 from phase18_graph import EntityGraph
