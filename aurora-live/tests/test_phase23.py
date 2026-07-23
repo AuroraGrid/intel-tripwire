@@ -82,9 +82,13 @@ class Phase23Tests(unittest.TestCase):
     def test_search_returns_detection_with_stable_type(self):
         detection = self.create_detection()
         results = self.experience.search(self.actor, "kabul")
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["type"], "DETECTION")
-        self.assertEqual(results[0]["id"], detection["id"])
+        detection_results = [
+            item for item in results if item["type"] == "DETECTION"
+        ]
+        claim_results = [item for item in results if item["type"] == "CLAIM"]
+        self.assertEqual(len(detection_results), 1)
+        self.assertEqual(detection_results[0]["id"], detection["id"])
+        self.assertEqual(len(claim_results), 1)
 
     def test_saved_views_are_owner_scoped_and_shareable(self):
         private = self.experience.save_view(self.actor, {
