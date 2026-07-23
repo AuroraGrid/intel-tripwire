@@ -1,0 +1,57 @@
+name: AURORA Phase 23 CI
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase22_*.py"
+      - "aurora-live/phase23_*.py"
+      - "aurora-live/static/platform.html"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase22.py"
+      - "aurora-live/tests/test_phase23*.py"
+      - ".github/workflows/phase23.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aurora-live/phase23_*.py"
+      - "aurora-live/static/platform.html"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase23*.py"
+      - ".github/workflows/phase23.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile Phase 23 release chain
+        run: >
+          python -m py_compile
+          aurora-live/phase23_experience.py
+          aurora-live/phase23_complete.py
+          aurora-live/release_wsgi.py
+      - name: Verify release imports
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "import phase23_experience, phase23_complete, release_wsgi"
+      - name: Run Phase 23 backend qualification
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase23.py" -v
+      - name: Validate unified console
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase23_ui.py" -v
+      - name: Run Phase 22 regression
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase22.py" -v
+      - name: Run platform regression
+        run: python -m unittest discover -s aurora-live/tests -p "test_platform.py" -v
