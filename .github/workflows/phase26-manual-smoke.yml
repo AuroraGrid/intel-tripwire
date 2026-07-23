@@ -10,6 +10,9 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+  workflow_run:
+    workflows: ["AURORA Phase 26 Production Operations"]
+    types: [completed]
 
 permissions:
   contents: read
@@ -22,6 +25,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_run' ||
       (github.event.issue.pull_request &&
        github.event.comment.user.login == 'hr185882-creator' &&
        github.event.comment.body == '/phase26-smoke')
