@@ -1,0 +1,86 @@
+name: AURORA Phase 25 Qualification
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase14_*.py"
+      - "aurora-live/phase15_*.py"
+      - "aurora-live/phase16_*.py"
+      - "aurora-live/phase17_*.py"
+      - "aurora-live/phase18_*.py"
+      - "aurora-live/phase19_*.py"
+      - "aurora-live/phase20_*.py"
+      - "aurora-live/phase21_*.py"
+      - "aurora-live/phase22_*.py"
+      - "aurora-live/phase23_*.py"
+      - "aurora-live/phase24_*.py"
+      - "aurora-live/phase25_*.py"
+      - "aurora-live/qualification/**"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase25.py"
+      - ".github/workflows/phase25.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aurora-live/phase25_*.py"
+      - "aurora-live/qualification/**"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase25.py"
+      - ".github/workflows/phase25.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase25:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Validate benchmark data
+        run: python -m json.tool aurora-live/qualification/world_monitor_baseline_2026-07-23.json
+      - name: Compile qualification release
+        run: >
+          python -m py_compile
+          aurora-live/phase25_qualification.py
+          aurora-live/phase25_complete.py
+          aurora-live/release_wsgi.py
+      - name: Verify release imports
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "import phase25_qualification, phase25_complete, release_wsgi"
+      - name: Run Phase 25 end-to-end qualification
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase25.py" -v
+
+  full-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Run full SQLite regression suite
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -m unittest discover -s aurora-live/tests -p "test_*.py" -v
+      - name: Verify public release entrypoint
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "from release_wsgi import application; print(type(application).__name__)"
+      - name: Check repository whitespace
+        run: git diff --check HEAD^ HEAD

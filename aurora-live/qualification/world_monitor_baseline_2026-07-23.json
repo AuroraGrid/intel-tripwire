@@ -1,0 +1,77 @@
+{
+  "benchmark": "World Monitor",
+  "verified_at": "2026-07-23",
+  "status": "official-public-documentation-baseline",
+  "capabilities": {
+    "external_data_sources": {
+      "value": 65,
+      "qualifier": "at_least",
+      "source": "https://github.com/koala73/worldmonitor/blob/main/README.md"
+    },
+    "curated_news_feeds": {
+      "value": 500,
+      "qualifier": "at_least",
+      "source": "https://github.com/koala73/worldmonitor/blob/main/README.md"
+    },
+    "map_layers": {
+      "value": 45,
+      "qualifier": "documented",
+      "source": "https://github.com/koala73/worldmonitor/blob/main/README.md"
+    },
+    "openapi_operations": {
+      "value": 190,
+      "qualifier": "unreleased-documented",
+      "source": "https://github.com/koala73/worldmonitor/blob/main/CHANGELOG.md"
+    },
+    "product_variants": {
+      "value": 5,
+      "qualifier": "documented",
+      "source": "https://www.worldmonitor.app/docs/documentation"
+    },
+    "monitored_airports": {
+      "value": 111,
+      "qualifier": "documented",
+      "source": "https://www.worldmonitor.app/docs/features"
+    },
+    "country_resilience_coverage": {
+      "value": 220,
+      "qualifier": "approximately",
+      "source": "https://www.worldmonitor.app/docs/features"
+    },
+    "map_engines": {
+      "value": ["3D globe", "WebGL flat map"],
+      "source": "https://www.worldmonitor.app/docs/documentation"
+    },
+    "workflows": {
+      "value": ["Route Explorer", "Scenario Engine"],
+      "source": "https://www.worldmonitor.app/docs/documentation"
+    },
+    "agent_access": {
+      "value": ["MCP", "OAuth 2.1", "API key"],
+      "source": "https://www.worldmonitor.app/docs/documentation"
+    },
+    "local_ai": {
+      "value": ["Ollama", "LM Studio", "Transformers.js"],
+      "source": "https://github.com/koala73/worldmonitor/blob/main/CHANGELOG.md"
+    },
+    "desktop": {
+      "value": ["macOS", "Windows", "Linux", "Tauri sidecar"],
+      "source": "https://www.worldmonitor.app/docs/desktop-app"
+    }
+  },
+  "methodology": {
+    "facts": "Only official World Monitor documentation and repository material are counted.",
+    "marketing_claims": "Documented numbers remain vendor claims until independently reproduced.",
+    "unknowns": "Uptime, event accuracy, source success, user adoption, and live latency are not inferred.",
+    "comparison_rule": "AURORA receives AHEAD or PARITY only for a measured or directly inspectable capability."
+  },
+  "sources": [
+    "https://www.worldmonitor.app/docs/documentation",
+    "https://www.worldmonitor.app/docs/features",
+    "https://www.worldmonitor.app/docs/scenario-engine",
+    "https://www.worldmonitor.app/docs/desktop-app",
+    "https://github.com/koala73/worldmonitor/blob/main/README.md",
+    "https://github.com/koala73/worldmonitor/blob/main/CHANGELOG.md",
+    "https://github.com/koala73/worldmonitor/blob/main/ARCHITECTURE.md"
+  ]
+}

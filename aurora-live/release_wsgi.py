@@ -5,4 +5,4 @@ from phase8_runtime import OperationalAggregator
 
 app.AGGREGATOR = OperationalAggregator()
 
-from phase24_complete import application  # noqa: E402,F401
+from phase25_complete import application  # noqa: E402,F401
