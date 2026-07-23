@@ -1,0 +1,63 @@
+name: AURORA Phase 22 CI
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase11_*.py"
+      - "aurora-live/phase16_*.py"
+      - "aurora-live/phase21_*.py"
+      - "aurora-live/phase22_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/release_worker.py"
+      - "aurora-live/tests/test_phase11.py"
+      - "aurora-live/tests/test_phase16.py"
+      - "aurora-live/tests/test_phase21.py"
+      - "aurora-live/tests/test_phase22.py"
+      - ".github/workflows/phase22.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aurora-live/phase22_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/release_worker.py"
+      - "aurora-live/tests/test_phase22.py"
+      - ".github/workflows/phase22.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile Phase 22 release chain
+        run: >
+          python -m py_compile
+          aurora-live/phase22_forecasting.py
+          aurora-live/phase22_complete.py
+          aurora-live/phase22_worker.py
+          aurora-live/release_wsgi.py
+          aurora-live/release_worker.py
+      - name: Verify release imports
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "import phase22_forecasting, phase22_complete, phase22_worker, release_wsgi, release_worker"
+      - name: Run Phase 22 qualification
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase22.py" -v
+      - name: Run forecast ledger regression
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase11*.py" -v
+      - name: Run detection regression
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase16.py" -v
+      - name: Run route regression
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase21.py" -v
