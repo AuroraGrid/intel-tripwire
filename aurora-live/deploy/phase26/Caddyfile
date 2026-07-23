@@ -1,0 +1,12 @@
+{$AURORA_PUBLIC_HOST} {
+    encode zstd gzip
+    reverse_proxy aurora-platform:8090
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+    }
+    log {
+        output stdout
+        format json
+    }
+}

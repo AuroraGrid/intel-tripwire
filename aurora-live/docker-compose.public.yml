@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aurora
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - aurora-public-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora -d aurora"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  aurora-platform:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8090"
+    environment: &aurora-environment
+      DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      AURORA_BOOTSTRAP_SECRET: ${AURORA_BOOTSTRAP_SECRET:?set AURORA_BOOTSTRAP_SECRET}
+      AURORA_WEBHOOK_SECRET: ${AURORA_WEBHOOK_SECRET:?set AURORA_WEBHOOK_SECRET}
+      AURORA_CORS_ORIGIN: https://${AURORA_PUBLIC_HOST:?set AURORA_PUBLIC_HOST}
+      AURORA_ALLOWED_HOSTS: ${AURORA_PUBLIC_HOST}
+      AURORA_TRUSTED_PROXIES: 172.16.0.0/12
+      AURORA_REQUIRE_WORKER: "1"
+      AURORA_GROQ_ENABLED: "false"
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-30}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8090/api/platform/ready',headers={'Host':os.environ['AURORA_PUBLIC_HOST']}); d=json.load(urllib.request.urlopen(r,timeout=3)); assert d['status']=='ready'"
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  aurora-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "release_worker.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *aurora-environment
+      AURORA_REFRESH_INTERVAL_SECONDS: ${AURORA_REFRESH_INTERVAL_SECONDS:-300}
+      AURORA_MEDIA_INTERVAL_SECONDS: ${AURORA_MEDIA_INTERVAL_SECONDS:-10}
+      AURORA_OPERATING_INTERVAL_SECONDS: ${AURORA_OPERATING_INTERVAL_SECONDS:-10}
+      AURORA_ROUTE_INTERVAL_SECONDS: ${AURORA_ROUTE_INTERVAL_SECONDS:-60}
+      AURORA_FORECAST_INTERVAL_SECONDS: ${AURORA_FORECAST_INTERVAL_SECONDS:-60}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      aurora-platform:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      AURORA_PUBLIC_HOST: ${AURORA_PUBLIC_HOST:?set AURORA_PUBLIC_HOST}
+    volumes:
+      - ./deploy/phase26/Caddyfile:/etc/caddy/Caddyfile:ro
+      - aurora-public-caddy-data:/data
+      - aurora-public-caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  aurora-public-postgres:
+  aurora-public-caddy-data:
+  aurora-public-caddy-config:

@@ -1,0 +1,233 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aurora
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aurora-config
+  namespace: aurora
+data:
+  AURORA_CORS_ORIGIN: "https://aurora.example.com"
+  AURORA_ALLOWED_HOSTS: "aurora.example.com"
+  AURORA_TRUSTED_PROXIES: "10.0.0.0/8"
+  AURORA_REQUIRE_WORKER: "1"
+  AURORA_GROQ_ENABLED: "false"
+  GUNICORN_WORKERS: "2"
+  GUNICORN_TIMEOUT: "30"
+---
+# Template only. Replace this object with a sealed/external secret before apply.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aurora-secrets
+  namespace: aurora
+  annotations:
+    aurora.dev/template-only: "true"
+type: Opaque
+stringData:
+  DATABASE_URL: "replace-before-apply"
+  AURORA_BOOTSTRAP_SECRET: "replace-before-apply"
+  AURORA_WEBHOOK_SECRET: "replace-before-apply"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aurora-platform
+  namespace: aurora
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aurora-platform
+  template:
+    metadata:
+      labels:
+        app: aurora-platform
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: platform
+          image: ghcr.io/hr185882-creator/intel-tripwire:phase26
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8090
+          envFrom:
+            - configMapRef:
+                name: aurora-config
+            - secretRef:
+                name: aurora-secrets
+          readinessProbe:
+            httpGet:
+              path: /api/platform/ready
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: aurora.example.com
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/platform/live
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: aurora.example.com
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aurora-worker
+  namespace: aurora
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aurora-worker
+  template:
+    metadata:
+      labels:
+        app: aurora-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/hr185882-creator/intel-tripwire:phase26
+          imagePullPolicy: IfNotPresent
+          command: ["python", "release_worker.py"]
+          envFrom:
+            - configMapRef:
+                name: aurora-config
+            - secretRef:
+                name: aurora-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aurora-platform
+  namespace: aurora
+spec:
+  selector:
+    app: aurora-platform
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aurora
+  namespace: aurora
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+spec:
+  tls:
+    - hosts: ["aurora.example.com"]
+      secretName: aurora-tls
+  rules:
+    - host: aurora.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aurora-platform
+                port:
+                  name: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aurora-platform
+  namespace: aurora
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: aurora-platform
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: aurora-platform
+  namespace: aurora
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: aurora-platform
+  minReplicas: 2
+  maxReplicas: 10
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aurora-platform-ingress
+  namespace: aurora
+spec:
+  podSelector:
+    matchLabels:
+      app: aurora-platform
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8090
