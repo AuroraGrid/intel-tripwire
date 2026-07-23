@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aurora
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - aurora-onprem-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora -d aurora"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  aurora-platform:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${AURORA_BIND_ADDRESS:-127.0.0.1}:8090:8090"
+    environment: &aurora-environment
+      DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      AURORA_BOOTSTRAP_SECRET: ${AURORA_BOOTSTRAP_SECRET:?set AURORA_BOOTSTRAP_SECRET}
+      AURORA_WEBHOOK_SECRET: ${AURORA_WEBHOOK_SECRET:?set AURORA_WEBHOOK_SECRET}
+      AURORA_CORS_ORIGIN: ${AURORA_CORS_ORIGIN:-http://localhost:8090}
+      AURORA_ALLOWED_HOSTS: ${AURORA_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      AURORA_TRUSTED_PROXIES: ${AURORA_TRUSTED_PROXIES:-}
+      AURORA_REQUIRE_WORKER: "1"
+      AURORA_GROQ_ENABLED: "false"
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-30}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  aurora-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "release_worker.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *aurora-environment
+      AURORA_REFRESH_INTERVAL_SECONDS: ${AURORA_REFRESH_INTERVAL_SECONDS:-300}
+      AURORA_MEDIA_INTERVAL_SECONDS: ${AURORA_MEDIA_INTERVAL_SECONDS:-10}
+      AURORA_OPERATING_INTERVAL_SECONDS: ${AURORA_OPERATING_INTERVAL_SECONDS:-10}
+      AURORA_ROUTE_INTERVAL_SECONDS: ${AURORA_ROUTE_INTERVAL_SECONDS:-60}
+      AURORA_FORECAST_INTERVAL_SECONDS: ${AURORA_FORECAST_INTERVAL_SECONDS:-60}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  aurora-onprem-postgres:
+
