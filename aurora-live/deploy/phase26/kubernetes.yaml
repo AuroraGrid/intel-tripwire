@@ -66,12 +66,18 @@ spec:
             httpGet:
               path: /api/platform/ready
               port: http
+              httpHeaders:
+                - name: Host
+                  value: aurora.example.com
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /api/platform/live
               port: http
+              httpHeaders:
+                - name: Host
+                  value: aurora.example.com
             initialDelaySeconds: 20
             periodSeconds: 20
           resources:
