@@ -119,7 +119,7 @@ jobs:
           last_error = None
           while time.monotonic() < deadline:
               try:
-                  for endpoint, expected in (("live", "live"), ("ready", "ready")):
+                  for endpoint, expected in (("live", "alive"), ("ready", "ready")):
                       with urllib.request.urlopen(
                           f"http://127.0.0.1:8090/api/platform/{endpoint}",
                           timeout=5,
