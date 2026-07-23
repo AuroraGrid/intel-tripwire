@@ -225,4 +225,3 @@ spec:
     - ports:
         - protocol: TCP
           port: 8090
-
