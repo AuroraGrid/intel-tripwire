@@ -177,9 +177,20 @@ class AutonomousForecastEngine:
         domain = str(item.get("domain") or "general").lower()
         outcome_type = "MATERIAL_ESCALATION_7D"
         rate = self.base_rate(actor, domain, outcome_type)
-        confidence = max(0.0, min(1.0, float(item.get("confidence") or 0) / 100))
+        raw_confidence = float(item.get("confidence") or 0)
+        confidence = max(
+            0.0, min(1.0, raw_confidence if raw_confidence <= 1 else raw_confidence / 100)
+        )
         factor = self._state_factor(item.get("effective_state") or item.get("state"))
-        independent = max(1, int(item.get("independent_origins") or item.get("independent_sources") or 1))
+        independent = max(
+            1,
+            int(
+                item.get("source_families")
+                or item.get("independent_origins")
+                or item.get("independent_sources")
+                or 1
+            ),
+        )
         corroboration_bonus = min(0.15, (independent - 1) * 0.04)
         contradiction_penalty = min(
             0.25, int(item.get("contradiction_count") or 0) * 0.08
