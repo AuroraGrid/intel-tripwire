@@ -62,6 +62,14 @@ COMPONENTS = {
     "api",
     "backup",
 }
+SLO_REQUIRED_COMPONENTS = {
+    "platform",
+    "database",
+    "worker",
+    "sources",
+    "detection",
+    "api",
+}
 SAMPLE_STATES = {"HEALTHY", "DEGRADED", "DOWN"}
 DRILL_TYPES = {
     "BACKUP_RESTORE",
@@ -72,10 +80,68 @@ DRILL_TYPES = {
     "MOBILE_ACCEPTANCE",
 }
 DRILL_STATES = {"PENDING", "PASSED", "FAILED"}
+PROFILE_REQUIRED_DRILLS = {
+    "public": {
+        "BACKUP_RESTORE",
+        "ROLLBACK",
+        "DISASTER_RECOVERY",
+        "LOAD_TEST",
+        "SECURITY_REVIEW",
+        "MOBILE_ACCEPTANCE",
+    },
+    "cloud": {
+        "BACKUP_RESTORE",
+        "ROLLBACK",
+        "DISASTER_RECOVERY",
+        "LOAD_TEST",
+        "SECURITY_REVIEW",
+    },
+    "on_premises": {
+        "BACKUP_RESTORE",
+        "ROLLBACK",
+        "DISASTER_RECOVERY",
+        "SECURITY_REVIEW",
+    },
+}
+DRILL_MAX_AGE_DAYS = {
+    "BACKUP_RESTORE": 30,
+    "ROLLBACK": 90,
+    "DISASTER_RECOVERY": 180,
+    "LOAD_TEST": 90,
+    "SECURITY_REVIEW": 365,
+    "MOBILE_ACCEPTANCE": 180,
+}
+SLO_SAMPLE_INTERVAL_SECONDS = 3600
+SLO_MAX_GAP_SECONDS = 5400
+MAX_FUTURE_SKEW_SECONDS = 300
+EVIDENCE_REFERENCE_KEYS = {
+    "artifact",
+    "url",
+    "report",
+    "report_url",
+    "run_id",
+    "checksum",
+    "sha256",
+}
 
 
 def _parse_timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("timestamp must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _format_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _reject_future_timestamp(value: datetime, field: str) -> None:
+    ceiling = datetime.now(timezone.utc) + timedelta(
+        seconds=MAX_FUTURE_SKEW_SECONDS
+    )
+    if value > ceiling:
+        raise ValueError(f"{field} is too far in the future")
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:
@@ -89,12 +155,25 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     return round(float(ordered[index]), 3)
 
 
+def _evidence_is_usable(drill_type: str, evidence: dict[str, Any]) -> bool:
+    if not evidence or not any(
+        evidence.get(key) not in (None, "", [], {})
+        for key in EVIDENCE_REFERENCE_KEYS
+    ):
+        return False
+    if drill_type == "SECURITY_REVIEW":
+        return bool(evidence.get("independent")) and bool(
+            str(evidence.get("reviewer") or "").strip()
+        )
+    return True
+
+
 class ProductionOperations:
     """Evidence ledger for deployability, SLOs, and operational drills.
 
     Phase 26 never infers public uptime from a successful process import. A
-    deployment becomes operationally verified only after real samples and
-    drills have been recorded for the workspace.
+    deployment becomes operationally verified only after real, sufficiently
+    dense samples and current drills have been recorded for the workspace.
     """
 
     def __init__(self, store, qualifier=None):
@@ -180,8 +259,10 @@ class ProductionOperations:
             raise ValueError("latency_ms out of range")
         if freshness is not None and not 0 <= freshness <= 31_536_000:
             raise ValueError("freshness_seconds out of range")
-        observed = str(payload.get("observed_at") or now())
-        _parse_timestamp(observed)
+        observed_value = str(payload.get("observed_at") or now())
+        observed_dt = _parse_timestamp(observed_value)
+        _reject_future_timestamp(observed_dt, "observed_at")
+        observed = _format_timestamp(observed_dt)
         workspace = actor["workspace_id"]
         sample_id = sid(
             "operational-sample",
@@ -243,10 +324,10 @@ class ProductionOperations:
 
     def record_drill(self, actor, payload: dict[str, Any]):
         self.store.identity.require(actor, "admin")
-        profile = str(payload.get("profile") or "public").lower()
-        self.profile(profile)
-        drill_type = str(payload.get("drill_type") or "").upper()
-        state = str(payload.get("state") or "").upper()
+        profile_record = self.profile(payload.get("profile") or "public")
+        profile = profile_record["name"]
+        drill_type = str(payload.get("drill_type") or "").strip().upper()
+        state = str(payload.get("state") or "").strip().upper()
         if drill_type not in DRILL_TYPES:
             raise ValueError("invalid drill type")
         if state not in DRILL_STATES:
@@ -254,8 +335,14 @@ class ProductionOperations:
         evidence = payload.get("evidence") or {}
         if not isinstance(evidence, dict):
             raise ValueError("evidence must be an object")
-        performed = str(payload.get("performed_at") or now())
-        _parse_timestamp(performed)
+        if state == "PASSED" and not _evidence_is_usable(
+            drill_type, evidence
+        ):
+            raise ValueError("passed drill requires verifiable evidence")
+        performed_value = str(payload.get("performed_at") or now())
+        performed_dt = _parse_timestamp(performed_value)
+        _reject_future_timestamp(performed_dt, "performed_at")
+        performed = _format_timestamp(performed_dt)
         workspace = actor["workspace_id"]
         drill_id = sid(
             "operational-drill",
@@ -351,39 +438,111 @@ class ProductionOperations:
             reverse=True,
         )[:limit]
 
-    def slo(self, actor, window_hours=24):
+    def slo(
+        self,
+        actor,
+        window_hours=24,
+        required_components=None,
+        as_of=None,
+    ):
         window_hours = max(1, min(24 * 90, int(window_hours)))
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(hours=window_hours)
-        ).isoformat().replace("+00:00", "Z")
+        end = _parse_timestamp(str(as_of or now()))
+        start = end - timedelta(hours=window_hours)
+        start_text = _format_timestamp(start)
+        end_text = _format_timestamp(end)
+        required = set(required_components or SLO_REQUIRED_COMPONENTS)
+        unknown = required - COMPONENTS
+        if unknown:
+            raise ValueError("invalid required operational component")
         with self.store.db() as connection:
             rows = [
                 dict(row)
                 for row in connection.execute(
                     """
                     SELECT * FROM operational_samples
-                    WHERE workspace_id=? AND observed_at>=?
+                    WHERE workspace_id=? AND observed_at>=? AND observed_at<=?
                     ORDER BY observed_at
                     """,
-                    (actor["workspace_id"], cutoff),
+                    (actor["workspace_id"], start_text, end_text),
                 ).fetchall()
             ]
-        total = len(rows)
-        healthy = sum(row["state"] == "HEALTHY" for row in rows)
-        uptime = round(healthy * 100 / total, 4) if total else None
+        selected = [row for row in rows if row["component"] in required]
+        expected_per_component = max(
+            2,
+            math.ceil(
+                window_hours * 3600 / SLO_SAMPLE_INTERVAL_SECONDS
+            ),
+        )
+        component_results = {}
+        component_uptimes = []
+        coverage_complete = True
+        for component in sorted(required):
+            component_rows = [
+                row for row in selected if row["component"] == component
+            ]
+            timestamps = [
+                _parse_timestamp(row["observed_at"])
+                for row in component_rows
+            ]
+            boundary_points = [start, *timestamps, end]
+            max_gap = max(
+                (
+                    (right - left).total_seconds()
+                    for left, right in zip(
+                        boundary_points, boundary_points[1:]
+                    )
+                ),
+                default=window_hours * 3600,
+            )
+            count = len(component_rows)
+            healthy = sum(
+                row["state"] == "HEALTHY" for row in component_rows
+            )
+            component_uptime = (
+                round(healthy * 100 / count, 4) if count else None
+            )
+            if component_uptime is not None:
+                component_uptimes.append(component_uptime)
+            complete = (
+                count >= expected_per_component
+                and max_gap <= SLO_MAX_GAP_SECONDS
+            )
+            coverage_complete = coverage_complete and complete
+            component_results[component] = {
+                "samples": count,
+                "healthy_samples": healthy,
+                "uptime_percent": component_uptime,
+                "max_gap_seconds": round(max_gap, 3),
+                "coverage_complete": complete,
+            }
+        uptime = (
+            min(component_uptimes)
+            if len(component_uptimes) == len(required)
+            else None
+        )
         latencies = [
             float(row["latency_ms"])
-            for row in rows
+            for row in selected
             if row["latency_ms"] is not None
         ]
         freshness = [
             float(row["freshness_seconds"])
-            for row in rows
+            for row in selected
             if row["freshness_seconds"] is not None
         ]
+        measurement_status = (
+            "PASS"
+            if uptime is not None and uptime >= 99.9
+            else "FAIL"
+            if uptime is not None
+            else "NOT_VERIFIED"
+        )
+        status = measurement_status if coverage_complete else "NOT_VERIFIED"
         return {
             "window_hours": window_hours,
-            "samples": total,
+            "window_start": start_text,
+            "window_end": end_text,
+            "samples": len(selected),
             "uptime_percent": uptime,
             "p95_latency_ms": _percentile(latencies, 0.95),
             "p95_freshness_seconds": _percentile(freshness, 0.95),
@@ -391,64 +550,109 @@ class ProductionOperations:
                 "uptime_percent": 99.9,
                 "high_priority_detection_seconds": 60,
                 "normal_detection_seconds": 300,
+                "sample_interval_seconds": SLO_SAMPLE_INTERVAL_SECONDS,
+                "maximum_gap_seconds": SLO_MAX_GAP_SECONDS,
             },
-            "status": (
-                "PASS"
-                if uptime is not None and uptime >= 99.9
-                else "FAIL"
-                if uptime is not None
-                else "NOT_VERIFIED"
+            "coverage": {
+                "required_components": sorted(required),
+                "expected_samples_per_component": expected_per_component,
+                "complete": coverage_complete,
+                "components": component_results,
+            },
+            "measurement_status": measurement_status,
+            "status": status,
+            "note": (
+                "A passing uptime percentage is not sufficient without "
+                "complete component and time-window coverage."
             ),
-            "note": "No samples means not verified, never a pass.",
         }
 
-    def readiness(self, actor, profile="public"):
-        profile_record = self.profile(profile)
-        slo = self.slo(actor)
+    def _latest_drills(self, actor, profile: str):
         with self.store.db() as connection:
-            passed_drills = {
-                row["drill_type"]
+            rows = [
+                dict(row)
                 for row in connection.execute(
                     """
-                    SELECT drill_type FROM operational_drills
-                    WHERE workspace_id=? AND profile=? AND state='PASSED'
+                    SELECT * FROM operational_drills
+                    WHERE workspace_id=? AND profile=?
+                    ORDER BY performed_at DESC, created_at DESC
                     """,
-                    (actor["workspace_id"], profile_record["name"]),
+                    (actor["workspace_id"], profile),
                 ).fetchall()
+            ]
+        latest = {}
+        for row in rows:
+            latest.setdefault(row["drill_type"], row)
+        for item in latest.values():
+            item["evidence"] = json.loads(item["evidence"])
+        return latest
+
+    @staticmethod
+    def _drill_check(drill_type: str, record, as_of: datetime):
+        check = {
+            "name": f"{drill_type.lower()}_drill",
+            "drill_type": drill_type,
+            "status": "NOT_VERIFIED",
+            "max_age_days": DRILL_MAX_AGE_DAYS[drill_type],
+        }
+        if not record:
+            check["reason"] = "no drill recorded"
+            return check
+        performed = _parse_timestamp(record["performed_at"])
+        age = max(0.0, (as_of - performed).total_seconds() / 86400)
+        check.update(
+            {
+                "record_id": record["id"],
+                "state": record["state"],
+                "performed_at": record["performed_at"],
+                "age_days": round(age, 3),
             }
-            connection.execute("SELECT 1").fetchone()
-        required = {"BACKUP_RESTORE", "ROLLBACK", "DISASTER_RECOVERY"}
+        )
+        if record["state"] == "FAILED":
+            check["status"] = "FAIL"
+            check["reason"] = "latest drill failed"
+        elif record["state"] != "PASSED":
+            check["reason"] = "latest drill is not passed"
+        elif age > DRILL_MAX_AGE_DAYS[drill_type]:
+            check["reason"] = "latest passing drill is expired"
+        elif not _evidence_is_usable(drill_type, record["evidence"]):
+            check["reason"] = "drill evidence is incomplete"
+        else:
+            check["status"] = "PASS"
+            check["reason"] = "latest drill passed with current evidence"
+        return check
+
+    def readiness(self, actor, profile="public", as_of=None):
+        profile_record = self.profile(profile)
+        reference_time = _parse_timestamp(str(as_of or now()))
+        slo = self.slo(actor, 24, as_of=_format_timestamp(reference_time))
+        try:
+            with self.store.db() as connection:
+                connection.execute("SELECT 1").fetchone()
+            database_status = "PASS"
+        except Exception:
+            database_status = "FAIL"
+        required_drills = PROFILE_REQUIRED_DRILLS[profile_record["name"]]
+        latest_drills = self._latest_drills(
+            actor, profile_record["name"]
+        )
         checks = [
-            {"name": "database_connection", "status": "PASS"},
+            {"name": "database_connection", "status": database_status},
             {
                 "name": "operational_slo",
                 "status": slo["status"],
-            },
-            {
-                "name": "backup_restore_drill",
-                "status": (
-                    "PASS"
-                    if "BACKUP_RESTORE" in passed_drills
-                    else "NOT_VERIFIED"
-                ),
-            },
-            {
-                "name": "rollback_drill",
-                "status": (
-                    "PASS"
-                    if "ROLLBACK" in passed_drills
-                    else "NOT_VERIFIED"
-                ),
-            },
-            {
-                "name": "disaster_recovery_drill",
-                "status": (
-                    "PASS"
-                    if "DISASTER_RECOVERY" in passed_drills
-                    else "NOT_VERIFIED"
-                ),
+                "coverage_complete": slo["coverage"]["complete"],
+                "uptime_percent": slo["uptime_percent"],
             },
         ]
+        checks.extend(
+            self._drill_check(
+                drill_type,
+                latest_drills.get(drill_type),
+                reference_time,
+            )
+            for drill_type in sorted(required_drills)
+        )
         if self.qualifier:
             integration = self.qualifier.latest(actor)
             checks.append(
@@ -459,26 +663,34 @@ class ProductionOperations:
                         if integration.get("status") == "PASS"
                         else "NOT_VERIFIED"
                     ),
+                    "run_id": integration.get("run_id"),
                 }
             )
-        complete = (
-            slo["status"] == "PASS"
-            and required.issubset(passed_drills)
-            and all(
-                check["status"] == "PASS"
-                for check in checks
-                if check["name"] == "phase25_integration"
-            )
+        statuses = {check["status"] for check in checks}
+        complete = bool(checks) and statuses == {"PASS"}
+        status = (
+            "PASS"
+            if complete
+            else "FAIL"
+            if "FAIL" in statuses
+            else "NOT_VERIFIED"
         )
         return {
             "profile": profile_record,
             "checks": checks,
-            "ready_for_public_claim": complete,
-            "status": "PASS" if complete else "NOT_VERIFIED",
+            "required_drills": sorted(required_drills),
+            "ready_for_deployment_claim": complete,
+            "ready_for_public_claim": (
+                complete if profile_record["name"] == "public" else False
+            ),
+            "status": status,
             "slo": slo,
             "policy": {
                 "configuration_is_not_operational_proof": True,
-                "external_security_review_is_separate": True,
+                "current_drills_override_older_results": True,
+                "external_security_review_is_required": (
+                    "SECURITY_REVIEW" in required_drills
+                ),
                 "ai_api_required": False,
             },
         }
