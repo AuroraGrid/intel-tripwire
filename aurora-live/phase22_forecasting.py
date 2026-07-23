@@ -122,6 +122,14 @@ class AutonomousForecastEngine:
                     self._actor(actor), stamp, stamp,
                 ),
             )
+        self.store.identity.audit(
+            self._workspace(actor),
+            self._actor(actor),
+            "forecast.base_rate.updated",
+            "forecast_base_rate",
+            rate_id,
+            metadata={"domain": domain, "outcome_type": outcome_type},
+        )
         return self.base_rate(actor, domain, outcome_type)
 
     def base_rate(
@@ -353,6 +361,17 @@ class AutonomousForecastEngine:
         candidate = self.candidate(actor, candidate_id)
         if not existing:
             self._revision(actor, candidate, "PROPOSED", None, "Forecast candidate generated")
+            self.store.identity.audit(
+                self._workspace(actor),
+                self._actor(actor),
+                "forecast.candidate.proposed",
+                "forecast_candidate",
+                candidate_id,
+                metadata={
+                    "subject_type": payload["subject_type"],
+                    "subject_id": payload["subject_id"],
+                },
+            )
         elif candidate["state"] == "APPROVED":
             self._sync_ledger(actor, candidate)
             candidate = self.candidate(actor, candidate_id)
@@ -426,6 +445,14 @@ class AutonomousForecastEngine:
             self._revision(
                 actor, approved, "APPROVED", candidate["probability"], rationale
             )
+            self.store.identity.audit(
+                self._workspace(actor),
+                self._actor(actor),
+                "forecast.candidate.approved",
+                "forecast_candidate",
+                candidate_id,
+                metadata={"forecast_id": forecast_id},
+            )
         return approved
 
     def suppress(
@@ -443,6 +470,14 @@ class AutonomousForecastEngine:
         updated = self.candidate(actor, candidate_id)
         self._revision(
             actor, updated, "SUPPRESSED", candidate["probability"], rationale
+        )
+        self.store.identity.audit(
+            self._workspace(actor),
+            self._actor(actor),
+            "forecast.candidate.suppressed",
+            "forecast_candidate",
+            candidate_id,
+            metadata={"rationale": rationale},
         )
         return updated
 
@@ -462,6 +497,14 @@ class AutonomousForecastEngine:
             )
         updated = self.candidate(actor, candidate_id)
         self._revision(actor, updated, "REOPENED", candidate["probability"], rationale)
+        self.store.identity.audit(
+            self._workspace(actor),
+            self._actor(actor),
+            "forecast.candidate.reopened",
+            "forecast_candidate",
+            candidate_id,
+            metadata={"rationale": rationale},
+        )
         return updated
 
     def _sync_ledger(
