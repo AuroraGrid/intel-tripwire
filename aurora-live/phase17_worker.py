@@ -5,7 +5,7 @@ import os
 from identity import ROLES
 from phase14_integrity import EvidenceIntegrity
 from phase15_mesh import SensorMesh
-from phase16_detection import DetectionEngine
+from phase16_synchronized import DetectionEngine
 from phase17_fabric import RealtimeFabric
 from worker import AuroraWorker
 
@@ -26,13 +26,7 @@ class Phase17Worker(AuroraWorker):
         if not row:
             return None
         role = row["role"]
-        return {
-            "id": row["user_id"],
-            "workspace_id": workspace_id,
-            "workspace_role": role,
-            "role": "admin" if role == "owner" else role,
-            "permissions": sorted(ROLES.get(role, set())),
-        }
+        return {"id": row["user_id"], "workspace_id": workspace_id, "workspace_role": role, "role": "admin" if role == "owner" else role, "permissions": sorted(ROLES.get(role, set()))}
 
     def process_fabric(self):
         totals = {"workspaces": 0, "processed": 0, "created": 0, "linked": 0, "events_published": 0}
