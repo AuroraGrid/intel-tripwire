@@ -1,0 +1,154 @@
+name: AURORA Phase 26 Manual Smoke Gate
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  smoke:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == 'hr185882-creator' &&
+      github.event.comment.body == '/phase26-smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      POSTGRES_PASSWORD: phase26-smoke-password
+      AURORA_BOOTSTRAP_SECRET: phase26-smoke-bootstrap
+      AURORA_WEBHOOK_SECRET: phase26-smoke-webhook
+    steps:
+      - name: Resolve same-repository pull request head
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            const expectedRepo = `${context.repo.owner}/${context.repo.repo}`;
+            if (pr.head.repo.full_name !== expectedRepo) {
+              core.setFailed(`Refusing fork head ${pr.head.repo.full_name}`);
+              return;
+            }
+            core.setOutput('sha', pr.head.sha);
+            core.setOutput('ref', pr.head.ref);
+
+      - name: Mark smoke gate pending
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.HEAD_SHA,
+              state: 'pending',
+              context: 'phase26-smoke/manual',
+              description: 'On-premises deployment smoke gate is running',
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.sha }}
+
+      - name: Validate on-premises Compose
+        working-directory: aurora-live
+        run: docker compose -f docker-compose.onprem.yml config --quiet
+
+      - name: Build and start on-premises deployment
+        working-directory: aurora-live
+        run: docker compose -f docker-compose.onprem.yml up --build -d
+
+      - name: Verify containers and health endpoints
+        working-directory: aurora-live
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import time
+          import urllib.error
+          import urllib.request
+
+          deadline = time.monotonic() + 180
+          last_error = None
+          while time.monotonic() < deadline:
+              try:
+                  for endpoint, expected in (("live", "live"), ("ready", "ready")):
+                      with urllib.request.urlopen(
+                          f"http://127.0.0.1:8090/api/platform/{endpoint}",
+                          timeout=5,
+                      ) as response:
+                          payload = json.load(response)
+                      assert payload["status"] == expected, payload
+                  worker_id = subprocess.check_output(
+                      [
+                          "docker", "compose", "-f", "docker-compose.onprem.yml",
+                          "ps", "-q", "aurora-worker",
+                      ],
+                      text=True,
+                  ).strip()
+                  if not worker_id:
+                      raise RuntimeError("aurora-worker container was not created")
+                  worker_state = subprocess.check_output(
+                      ["docker", "inspect", "-f", "{{.State.Status}}", worker_id],
+                      text=True,
+                  ).strip()
+                  if worker_state != "running":
+                      raise RuntimeError(f"aurora-worker state is {worker_state}")
+                  break
+              except (
+                  AssertionError,
+                  OSError,
+                  RuntimeError,
+                  subprocess.CalledProcessError,
+                  urllib.error.URLError,
+              ) as exc:
+                  last_error = exc
+                  time.sleep(5)
+          else:
+              raise AssertionError(
+                  f"deployment did not become healthy before timeout: {last_error}"
+              )
+          PY
+
+      - name: Show container state on failure
+        if: failure()
+        working-directory: aurora-live
+        run: |
+          docker compose -f docker-compose.onprem.yml ps
+          docker compose -f docker-compose.onprem.yml logs --no-color
+
+      - name: Stop on-premises deployment
+        if: always()
+        working-directory: aurora-live
+        run: docker compose -f docker-compose.onprem.yml down -v
+
+      - name: Publish smoke gate result
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+          JOB_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const passed = process.env.JOB_STATUS === 'success';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.HEAD_SHA,
+              state: passed ? 'success' : 'failure',
+              context: 'phase26-smoke/manual',
+              description: passed
+                ? 'On-premises deployment smoke gate passed'
+                : 'On-premises deployment smoke gate failed',
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
