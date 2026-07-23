@@ -71,4 +71,3 @@ No samples means `NOT_VERIFIED`, never `PASS`. Public readiness requires a
 measured 99.9% sample window, the required drills, and a passing Phase 25
 integration record. Independent security review and sustained public history
 remain external gates.
-
