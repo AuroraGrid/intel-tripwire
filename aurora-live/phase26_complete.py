@@ -68,7 +68,11 @@ class Phase26Application(Phase25Application):
                 rid,
             )
 
-        if not path.startswith("/api/platform/operations"):
+        operations_namespace = (
+            path == "/api/platform/operations"
+            or path.startswith("/api/platform/operations/")
+        )
+        if not operations_namespace:
             return super().__call__(environ, start_response)
         try:
             actor = self._user(environ)
