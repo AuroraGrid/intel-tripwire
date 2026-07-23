@@ -5,7 +5,7 @@ from phase8_runtime import OperationalAggregator
 
 app.AGGREGATOR = OperationalAggregator()
 
-from phase19_worker import main
+from phase20_worker import main
 
 if __name__ == "__main__":
     main()
