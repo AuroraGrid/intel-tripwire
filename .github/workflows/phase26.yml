@@ -12,16 +12,6 @@ on:
       - "aurora-live/deploy/phase26/**"
       - "aurora-live/.env.production.example"
       - ".github/workflows/phase26.yml"
-  push:
-    branches: ["main"]
-    paths:
-      - "aurora-live/phase26_*.py"
-      - "aurora-live/release_wsgi.py"
-      - "aurora-live/tests/test_phase26.py"
-      - "aurora-live/docker-compose.public.yml"
-      - "aurora-live/docker-compose.onprem.yml"
-      - "aurora-live/deploy/phase26/**"
-      - ".github/workflows/phase26.yml"
   workflow_dispatch:
 
 permissions:
