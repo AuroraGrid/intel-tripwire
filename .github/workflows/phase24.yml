@@ -1,0 +1,65 @@
+name: AURORA Phase 24 CI
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase17_*.py"
+      - "aurora-live/phase23_*.py"
+      - "aurora-live/phase24_*.py"
+      - "aurora-live/aurora_cli.py"
+      - "aurora-live/sdk/typescript/aurora.ts"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase24.py"
+      - ".github/workflows/phase24.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aurora-live/phase24_*.py"
+      - "aurora-live/aurora_cli.py"
+      - "aurora-live/sdk/typescript/aurora.ts"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase24.py"
+      - ".github/workflows/phase24.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile Phase 24 release chain
+        run: >
+          python -m py_compile
+          aurora-live/phase24_ecosystem.py
+          aurora-live/phase24_mcp.py
+          aurora-live/phase24_complete.py
+          aurora-live/phase24_sdk.py
+          aurora-live/aurora_cli.py
+          aurora-live/release_wsgi.py
+      - name: Verify release imports
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "import phase24_ecosystem, phase24_mcp, phase24_complete, phase24_sdk, release_wsgi"
+      - name: Run Phase 24 qualification
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase24.py" -v
+      - name: Run Phase 23 regression
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase23*.py" -v
+      - name: Run event fabric regression
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase17.py" -v
+      - name: Verify CLI
+        run: python aurora-live/aurora_cli.py --help
+      - name: Type-check TypeScript SDK
+        if: matrix.python-version == '3.13'
+        run: npx --yes --package typescript@5.9.3 tsc --noEmit --target ES2022 --lib ES2022,DOM aurora-live/sdk/typescript/aurora.ts
