@@ -40,6 +40,15 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8090/api/platform/ready',timeout=3)); assert d['status']=='ready'"
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   aurora-worker:
     build: .
@@ -47,6 +56,8 @@ services:
     command: ["python", "release_worker.py"]
     depends_on:
       postgres:
+        condition: service_healthy
+      aurora-platform:
         condition: service_healthy
     environment:
       <<: *aurora-environment
