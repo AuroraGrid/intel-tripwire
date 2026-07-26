@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -134,6 +135,26 @@ class Phase28Tests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[-1]["outcome"], "TRUE_POSITIVE")
 
+    def test_concurrent_outcome_retries_are_atomic(self):
+        payload = self.outcome_payload(
+            evidence={"run_id": "concurrent-resolution"}
+        )
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            results = list(
+                executor.map(
+                    lambda _: self.history.record_outcome(
+                        self.actor, payload
+                    ),
+                    range(4),
+                )
+            )
+        self.assertEqual({item["id"] for item in results}, {results[0]["id"]})
+        self.assertEqual(len(self.history.outcomes(self.actor)), 1)
+        self.assertEqual(
+            sum(not item["duplicate"] for item in results),
+            1,
+        )
+
     def test_scorecard_is_deterministic_and_reuses_forecast_ledger(self):
         self.history.record_outcome(
             self.actor, self.outcome_payload(weight=2)
@@ -226,6 +247,67 @@ class Phase28Tests(unittest.TestCase):
         )
         self.assertEqual(analogs[0]["id"], first["id"])
         self.assertGreater(analogs[0]["similarity"], 0)
+        unicode_case = self.history.record_case(
+            self.actor,
+            {
+                "canonical_key": "arabic-port-closure",
+                "title": "إغلاق الميناء المؤقت بسبب الطقس",
+                "domain": "maritime",
+                "outcome": "REOPENED",
+                "summary": "استؤنفت الملاحة بعد تحسن الأحوال الجوية",
+                "features": {"weather": True},
+                "evidence": {"report": "arabic-case.pdf"},
+                "observed_at": "2025-05-02T00:00:00Z",
+            },
+        )
+        unicode_analogs = self.history.analogs(
+            self.actor, "إغلاق الميناء", "maritime"
+        )
+        self.assertEqual(unicode_analogs[0]["id"], unicode_case["id"])
+
+    def test_analogs_search_beyond_the_newest_five_hundred_cases(self):
+        relevant = self.history.record_case(
+            self.actor,
+            {
+                "canonical_key": "historic-blockade",
+                "title": "Historic canal blockade by grounded vessel",
+                "domain": "maritime",
+                "outcome": "CLEARED",
+                "summary": "Salvage crews cleared the grounded vessel.",
+                "features": {"canal": True},
+                "evidence": {"report": "historic-blockade.pdf"},
+                "observed_at": "2020-01-01T00:00:00Z",
+            },
+        )
+        with self.store.db() as connection:
+            for index in range(505):
+                connection.execute(
+                    """
+                    INSERT INTO historical_cases(
+                        id,workspace_id,canonical_key,title,domain,outcome,
+                        summary,features,evidence,observed_at,actor_user_id,
+                        created_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        f"bulk-case-{index}",
+                        self.actor["workspace_id"],
+                        f"bulk-{index}",
+                        f"Routine weather bulletin {index}",
+                        "maritime",
+                        "NO_DISRUPTION",
+                        "No canal or vessel disruption was reported.",
+                        "{}",
+                        '{"artifact":"bulk-fixture"}',
+                        "2021-01-01T00:00:00Z",
+                        self.actor["id"],
+                        "2021-01-01T00:00:00Z",
+                    ),
+                )
+        analogs = self.history.analogs(
+            self.actor, "grounded vessel canal blockade", "maritime"
+        )
+        self.assertEqual(analogs[0]["id"], relevant["id"])
 
     def test_syndication_tracks_occurrences_and_independent_lineages(self):
         second_source = self.integrity.register_source(
