@@ -288,7 +288,13 @@ class CompetitiveGapClosure:
         as_of: datetime,
     ) -> tuple[str, str]:
         if not evidence:
-            return gap["baseline_result"], "no newer evidence recorded"
+            baseline = gap["baseline_result"]
+            if baseline in {"AHEAD", "PARITY"}:
+                return (
+                    "NOT_VERIFIED",
+                    "fresh Phase 27 evidence is required to close the gap",
+                )
+            return baseline, "no newer evidence recorded"
         if _parse_timestamp(evidence["expires_at"]) < as_of:
             return "NOT_VERIFIED", "latest evidence expired"
         if evidence["result"] in {"BEHIND", "NOT_VERIFIED"}:
