@@ -63,4 +63,3 @@ jobs:
           python -m unittest discover -s aurora-live/tests -p "test_phase14.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_phase16.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_phase27.py" -v
-
