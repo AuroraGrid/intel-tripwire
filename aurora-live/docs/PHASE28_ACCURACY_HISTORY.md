@@ -30,16 +30,19 @@ Each outcome requires a durable evidence reference and records:
 - structured metadata.
 
 Rows are append-only through the application API. An identical submission is
-idempotent and returns the existing row. Weighted accuracy and Laplace-smoothed
-accuracy are deterministic and documented in the scorecard response.
+idempotent and returns the existing row. Inserts use database conflict handling
+so concurrent retries cannot create duplicate history. Weighted accuracy and
+Laplace-smoothed accuracy are deterministic and documented in the scorecard
+response.
 
 ## Historical analogues
 
 Resolved cases have stable canonical keys, evidence, features, and outcomes.
 Analogue retrieval uses deterministic token overlap and optional domain
-matching. It works offline and requires no external AI or embedding service.
-The result is a candidate-history aid, not proof that two events have the same
-cause or outcome.
+matching across the complete workspace history. Normalization preserves Unicode
+letters and numbers. Retrieval works offline and requires no external AI or
+embedding service. The result is a candidate-history aid, not proof that two
+events have the same cause or outcome.
 
 ## Syndication history
 
