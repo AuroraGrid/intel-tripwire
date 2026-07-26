@@ -70,4 +70,3 @@ This phase supplies trustworthy history and scoring machinery. It does not
 claim that enough outcomes already exist to demonstrate superiority, source
 accuracy, analyst accuracy, or calibrated forecasting. Those conclusions
 remain gated by sample size, evidence quality, and Phase 27 qualification.
-
