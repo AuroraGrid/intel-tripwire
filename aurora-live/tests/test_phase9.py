@@ -1,3 +1,4 @@
+import gzip
 import sys
 import unittest
 from pathlib import Path
@@ -8,12 +9,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app
 from phase9_engine import Phase9Aggregator, registry_summary
 from phase9_final_repairs import FINAL_REPAIR_NAMES, final_phase9_adapters
-from phase9_repairs import REPAIRED_SOURCE_NAMES, REPAIRED_SOURCES, parse_html, repaired_phase9_adapters
+from phase9_repairs import (
+    REPAIRED_SOURCE_NAMES,
+    REPAIRED_SOURCES,
+    _request,
+    parse_html,
+    repaired_phase9_adapters,
+)
 from phase9_sources import RUNTIME, SOURCES, SourceSpec, fetch_source, phase9_adapters
 from release_engine import Adapter
 
 
 class Phase9Tests(unittest.TestCase):
+    def test_repaired_request_decodes_gzip_feed_responses(self):
+        class Response:
+            headers = {"Content-Encoding": "gzip"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return None
+
+            @staticmethod
+            def read():
+                return gzip.compress(b"<rss><channel /></rss>")
+
+        with patch(
+            "phase9_repairs.urllib.request.urlopen",
+            return_value=Response(),
+        ):
+            payload = _request(
+                "https://example.test/feed.xml",
+                "application/rss+xml",
+            )
+        self.assertEqual(payload, b"<rss><channel /></rss>")
+
     def test_registry_meets_initial_phase9_breadth_gate(self):
         summary = registry_summary()
         self.assertGreaterEqual(summary["totals"]["adapters"], 25)
