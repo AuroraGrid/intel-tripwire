@@ -814,4 +814,3 @@ class AccuracyHistory:
                 (self._workspace(actor), max(1, min(500, int(limit)))),
             ).fetchall()
         return [self.fingerprint(actor, row["id"]) for row in rows]
-
