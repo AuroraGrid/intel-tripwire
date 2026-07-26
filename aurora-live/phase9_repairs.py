@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import gzip
 import json
 import os
 import re
@@ -8,6 +9,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import zlib
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -135,7 +137,13 @@ def _request(url: str, accept: str) -> bytes:
     user_agent = os.getenv("AURORA_USER_AGENT", "Mozilla/5.0 (compatible; AURORA-LIVE/1.0; +mailto:hr185882@gmail.com)")
     request = urllib.request.Request(url, headers={"User-Agent": user_agent, "Accept": accept, "Accept-Language": "en-US,en;q=0.8"})
     with urllib.request.urlopen(request, timeout=app.TIMEOUT) as response:
-        return response.read()
+        payload = response.read()
+        encoding = str(response.headers.get("Content-Encoding") or "").lower()
+    if encoding == "gzip" or payload.startswith(b"\x1f\x8b"):
+        return gzip.decompress(payload)
+    if encoding == "deflate":
+        return zlib.decompress(payload)
+    return payload
 
 
 def _date_from_context(context: str) -> str:
