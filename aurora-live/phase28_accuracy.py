@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from collections import defaultdict
 from typing import Any
 
@@ -76,6 +77,12 @@ def _load(value: Any, default: Any) -> Any:
 def _normal(value: Any) -> str:
     text = re.sub(r"https?://\S+", " ", str(value or "").lower())
     text = re.sub(r"[^a-z0-9\s]", " ", text)
+    return " ".join(text.split())
+
+
+def _canonical_content(value: Any) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    text = re.sub(r"https?://\S+", " ", text)
     return " ".join(text.split())
 
 
@@ -289,10 +296,6 @@ class AccuracyHistory:
                     "workspace": self._workspace(actor),
                     "subject_type": subject_type,
                     "subject_id": subject_id,
-                    "outcome": outcome,
-                    "score": score,
-                    "weight": weight,
-                    "domain": domain,
                     "evidence": evidence,
                     "observed_at": observed,
                 }
@@ -304,11 +307,22 @@ class AccuracyHistory:
         with self.store.db() as connection:
             existing = connection.execute(
                 """
-                SELECT id FROM accuracy_outcomes
+                SELECT id,outcome,score,weight,domain,metadata
+                FROM accuracy_outcomes
                 WHERE workspace_id=? AND fingerprint=?
                 """,
                 (self._workspace(actor), fingerprint),
             ).fetchone()
+            if existing and (
+                existing["outcome"] != outcome
+                or float(existing["score"]) != score
+                or float(existing["weight"]) != weight
+                or existing["domain"] != domain
+                or existing["metadata"] != _json(metadata)
+            ):
+                raise ValueError(
+                    "evidence already identifies a different outcome"
+                )
             if not existing:
                 connection.execute(
                     """
@@ -662,7 +676,7 @@ class AccuracyHistory:
             raise ValueError("url required")
         source = self.integrity.source(actor, source_id)
         evidence = _evidence(payload.get("evidence"))
-        normalized = _normal(payload.get("content"))
+        normalized = _canonical_content(payload.get("content"))
         content_hash = str(payload.get("content_hash") or "").lower().strip()
         if normalized:
             calculated = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
