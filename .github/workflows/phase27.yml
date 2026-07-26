@@ -1,0 +1,57 @@
+name: AURORA Phase 27 Competitive Gap Closure
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase25_*.py"
+      - "aurora-live/phase26_*.py"
+      - "aurora-live/phase27_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase25.py"
+      - "aurora-live/tests/test_phase26.py"
+      - "aurora-live/tests/test_phase27.py"
+      - "aurora-live/docs/PHASE27_COMPETITIVE_GAPS.md"
+      - ".github/workflows/phase27.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aurora-live/phase27_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase27.py"
+      - ".github/workflows/phase27.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase27:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile release
+        run: >-
+          python -m py_compile
+          aurora-live/phase27_competitive.py
+          aurora-live/phase27_complete.py
+          aurora-live/release_wsgi.py
+          aurora-live/tests/test_phase27.py
+      - name: Verify imports
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "import phase27_competitive, phase27_complete, release_wsgi"
+      - name: Run Phase 27 tests
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase27.py" -v
+      - name: Run Phase 25-26 regressions
+        run: |
+          python -m unittest discover -s aurora-live/tests -p "test_phase25.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_phase26.py" -v
