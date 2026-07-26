@@ -75,8 +75,14 @@ def _load(value: Any, default: Any) -> Any:
 
 
 def _normal(value: Any) -> str:
-    text = re.sub(r"https?://\S+", " ", str(value or "").lower())
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    text = re.sub(r"https?://\S+", " ", text)
+    text = "".join(
+        character
+        if character.isalnum() or character.isspace()
+        else " "
+        for character in text
+    )
     return " ".join(text.split())
 
 
@@ -303,8 +309,34 @@ class AccuracyHistory:
         ).hexdigest()
         outcome_id = sid("accuracy-outcome", self._workspace(actor), fingerprint)
         created = now()
-        inserted = False
         with self.store.db() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO accuracy_outcomes(
+                    id,workspace_id,fingerprint,subject_type,subject_id,
+                    outcome,score,weight,domain,evidence,metadata,
+                    observed_at,actor_user_id,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(workspace_id,fingerprint) DO NOTHING
+                """,
+                (
+                    outcome_id,
+                    self._workspace(actor),
+                    fingerprint,
+                    subject_type,
+                    subject_id,
+                    outcome,
+                    score,
+                    weight,
+                    domain,
+                    _json(evidence),
+                    _json(metadata),
+                    observed,
+                    self._actor(actor),
+                    created,
+                ),
+            )
+            inserted = cursor.rowcount > 0
             existing = connection.execute(
                 """
                 SELECT id,outcome,score,weight,domain,metadata
@@ -313,45 +345,17 @@ class AccuracyHistory:
                 """,
                 (self._workspace(actor), fingerprint),
             ).fetchone()
-            if existing and (
-                existing["outcome"] != outcome
-                or float(existing["score"]) != score
-                or float(existing["weight"]) != weight
-                or existing["domain"] != domain
-                or existing["metadata"] != _json(metadata)
-            ):
-                raise ValueError(
-                    "evidence already identifies a different outcome"
-                )
-            if not existing:
-                connection.execute(
-                    """
-                    INSERT INTO accuracy_outcomes(
-                        id,workspace_id,fingerprint,subject_type,subject_id,
-                        outcome,score,weight,domain,evidence,metadata,
-                        observed_at,actor_user_id,created_at
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        outcome_id,
-                        self._workspace(actor),
-                        fingerprint,
-                        subject_type,
-                        subject_id,
-                        outcome,
-                        score,
-                        weight,
-                        domain,
-                        _json(evidence),
-                        _json(metadata),
-                        observed,
-                        self._actor(actor),
-                        created,
-                    ),
-                )
-                inserted = True
-            else:
-                outcome_id = existing["id"]
+        if not existing:
+            raise RuntimeError("accuracy outcome insert was not observable")
+        if (
+            existing["outcome"] != outcome
+            or float(existing["score"]) != score
+            or float(existing["weight"]) != weight
+            or existing["domain"] != domain
+            or existing["metadata"] != _json(metadata)
+        ):
+            raise ValueError("evidence already identifies a different outcome")
+        outcome_id = existing["id"]
         if inserted:
             self.store.identity.audit(
                 self._workspace(actor),
@@ -546,8 +550,19 @@ class AccuracyHistory:
             self._actor(actor),
             now(),
         )
-        inserted = False
         with self.store.db() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO historical_cases(
+                    id,workspace_id,canonical_key,title,domain,outcome,
+                    summary,features,evidence,observed_at,actor_user_id,
+                    created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(workspace_id,canonical_key) DO NOTHING
+                """,
+                values,
+            )
+            inserted = cursor.rowcount > 0
             existing = connection.execute(
                 """
                 SELECT id,title,domain,outcome,summary,features,evidence,
@@ -557,29 +572,18 @@ class AccuracyHistory:
                 """,
                 (self._workspace(actor), canonical_key),
             ).fetchone()
-            if existing and (
-                existing["title"] != title
-                or existing["domain"] != domain
-                or existing["outcome"] != outcome
-                or existing["summary"]
-                != str(payload.get("summary") or "").strip()
-                or existing["features"] != _json(features)
-                or existing["evidence"] != _json(evidence)
-                or existing["observed_at"] != observed
-            ):
-                raise ValueError("canonical_key already identifies another case")
-            if not existing:
-                connection.execute(
-                    """
-                    INSERT INTO historical_cases(
-                        id,workspace_id,canonical_key,title,domain,outcome,
-                        summary,features,evidence,observed_at,actor_user_id,
-                        created_at
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    values,
-                )
-                inserted = True
+        if not existing:
+            raise RuntimeError("historical case insert was not observable")
+        if (
+            existing["title"] != title
+            or existing["domain"] != domain
+            or existing["outcome"] != outcome
+            or existing["summary"] != str(payload.get("summary") or "").strip()
+            or existing["features"] != _json(features)
+            or existing["evidence"] != _json(evidence)
+            or existing["observed_at"] != observed
+        ):
+            raise ValueError("canonical_key already identifies another case")
         if inserted:
             self.store.identity.audit(
                 self._workspace(actor),
@@ -637,7 +641,16 @@ class AccuracyHistory:
         query = str(query or "").strip()
         if not query:
             raise ValueError("query required")
-        candidates = self.cases(actor, domain=domain, limit=500)
+        sql = "SELECT * FROM historical_cases WHERE workspace_id=?"
+        args: list[Any] = [self._workspace(actor)]
+        if domain:
+            sql += " AND domain=?"
+            args.append(_normal(domain)[:80])
+        with self.store.db() as connection:
+            candidates = [
+                self._case_item(row)
+                for row in connection.execute(sql, args).fetchall()
+            ]
         output = []
         for case in candidates:
             searchable = " ".join(
@@ -699,9 +712,25 @@ class AccuracyHistory:
             url,
         )
         created = now()
-        fingerprint_created = False
-        occurrence_created = False
         with self.store.db() as connection:
+            fingerprint_cursor = connection.execute(
+                """
+                INSERT INTO syndication_fingerprints(
+                    id,workspace_id,content_hash,normalized_text,
+                    first_seen_at,created_at
+                ) VALUES(?,?,?,?,?,?)
+                ON CONFLICT(workspace_id,content_hash) DO NOTHING
+                """,
+                (
+                    fingerprint_id,
+                    self._workspace(actor),
+                    content_hash,
+                    normalized,
+                    published,
+                    created,
+                ),
+            )
+            fingerprint_created = fingerprint_cursor.rowcount > 0
             existing = connection.execute(
                 """
                 SELECT id FROM syndication_fingerprints
@@ -710,25 +739,35 @@ class AccuracyHistory:
                 (self._workspace(actor), content_hash),
             ).fetchone()
             if not existing:
-                connection.execute(
-                    """
-                    INSERT INTO syndication_fingerprints(
-                        id,workspace_id,content_hash,normalized_text,
-                        first_seen_at,created_at
-                    ) VALUES(?,?,?,?,?,?)
-                    """,
-                    (
-                        fingerprint_id,
-                        self._workspace(actor),
-                        content_hash,
-                        normalized,
-                        published,
-                        created,
-                    ),
+                raise RuntimeError(
+                    "syndication fingerprint insert was not observable"
                 )
-                fingerprint_created = True
-            else:
-                fingerprint_id = existing["id"]
+            fingerprint_id = existing["id"]
+            occurrence_cursor = connection.execute(
+                """
+                INSERT INTO syndication_occurrences(
+                    id,workspace_id,fingerprint_id,source_origin_id,
+                    lineage_key,url,published_at,evidence,actor_user_id,
+                    created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(
+                    workspace_id,fingerprint_id,source_origin_id,url
+                ) DO NOTHING
+                """,
+                (
+                    occurrence_id,
+                    self._workspace(actor),
+                    fingerprint_id,
+                    source_id,
+                    source["lineage_key"],
+                    url,
+                    published,
+                    _json(evidence),
+                    self._actor(actor),
+                    created,
+                ),
+            )
+            occurrence_created = occurrence_cursor.rowcount > 0
             occurrence = connection.execute(
                 """
                 SELECT id FROM syndication_occurrences
@@ -737,31 +776,9 @@ class AccuracyHistory:
                 """,
                 (self._workspace(actor), fingerprint_id, source_id, url),
             ).fetchone()
-            if not occurrence:
-                connection.execute(
-                    """
-                    INSERT INTO syndication_occurrences(
-                        id,workspace_id,fingerprint_id,source_origin_id,
-                        lineage_key,url,published_at,evidence,actor_user_id,
-                        created_at
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        occurrence_id,
-                        self._workspace(actor),
-                        fingerprint_id,
-                        source_id,
-                        source["lineage_key"],
-                        url,
-                        published,
-                        _json(evidence),
-                        self._actor(actor),
-                        created,
-                    ),
-                )
-                occurrence_created = True
-            else:
-                occurrence_id = occurrence["id"]
+        if not occurrence:
+            raise RuntimeError("syndication occurrence insert was not observable")
+        occurrence_id = occurrence["id"]
         if occurrence_created:
             self.store.identity.audit(
                 self._workspace(actor),
