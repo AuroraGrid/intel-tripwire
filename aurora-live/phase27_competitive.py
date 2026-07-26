@@ -369,13 +369,14 @@ class CompetitiveGapClosure:
             for row in rows
             if row["strategic"] and not row["closed"]
         ]
+        all_closed = bool(rows) and all(row["closed"] for row in rows)
         return {
             "phase": 27,
             "gaps": rows,
             "counts": counts,
             "strategic_open": strategic_open,
             "strategic_gaps_closed": not strategic_open,
-            "superiority_claim_candidate": bool(rows) and not strategic_open,
+            "superiority_claim_candidate": all_closed,
             "policy": {
                 "latest_evidence_wins": True,
                 "evidence_expires": True,
@@ -405,12 +406,34 @@ class CompetitiveGapClosure:
             for key in EVIDENCE_REFERENCE_KEYS
         ):
             raise ValueError("evidence requires a verifiable reference")
-        for key, value in metrics.items():
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                _finite_number(value, f"metrics.{key}")
-
-        independent = bool(payload.get("independent", False))
         criteria = json.loads(gap["criteria"])
+        numeric_metrics = {
+            "external_sources",
+            "curated_feeds",
+            "window_hours",
+            "success_percent",
+            "resolved_forecasts",
+            "tasks",
+            "participants",
+            "uptime_percent",
+            "window_days",
+            "aurora",
+            "world_monitor",
+            "brier_score",
+            "log_loss",
+        }
+        for key in numeric_metrics & metrics.keys():
+            if isinstance(metrics[key], bool):
+                raise ValueError(f"metrics.{key} must be numeric")
+            _finite_number(metrics[key], f"metrics.{key}")
+        for key in ("competitor_target_verified", "conformance_passed"):
+            if key in metrics and not isinstance(metrics[key], bool):
+                raise ValueError(f"metrics.{key} must be a boolean")
+
+        independent_value = payload.get("independent", False)
+        if not isinstance(independent_value, bool):
+            raise ValueError("independent must be a boolean")
+        independent = independent_value
         if (
             result in {"AHEAD", "PARITY"}
             and criteria.get("independent_required")
