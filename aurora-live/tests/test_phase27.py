@@ -4,6 +4,7 @@ import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -174,6 +175,15 @@ class Phase27Tests(unittest.TestCase):
             },
         )
         self.assertTrue(record["independent"])
+        with self.assertRaises(ValueError):
+            self.closure.record_evidence(
+                actor,
+                {
+                    **payload,
+                    "source": "String boolean is not proof",
+                    "independent": "false",
+                },
+            )
 
     def test_expired_evidence_returns_to_not_verified(self):
         actor = self.actor()
@@ -234,6 +244,40 @@ class Phase27Tests(unittest.TestCase):
                     "evidence": {},
                 },
             )
+        with self.assertRaises(ValueError):
+            self.closure.record_evidence(
+                actor,
+                {
+                    "capability": "documented-api-operations",
+                    "result": "PARITY",
+                    "source": "bad numeric run",
+                    "metrics": {
+                        "aurora": "NaN",
+                        "world_monitor": 190,
+                    },
+                    "evidence": {"run_id": "bad-numeric"},
+                },
+            )
+
+    def test_superiority_candidate_requires_every_row_closed(self):
+        rows = [
+            {
+                "slug": "strategic",
+                "strategic": True,
+                "closed": True,
+                "current_result": "AHEAD",
+            },
+            {
+                "slug": "api",
+                "strategic": False,
+                "closed": False,
+                "current_result": "BEHIND",
+            },
+        ]
+        with patch.object(self.closure, "gaps", return_value=rows):
+            summary = self.closure.summary(self.actor())
+        self.assertTrue(summary["strategic_gaps_closed"])
+        self.assertFalse(summary["superiority_claim_candidate"])
 
 
 if __name__ == "__main__":

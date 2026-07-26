@@ -1,0 +1,70 @@
+name: AURORA Phase 28 Accuracy History
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase9_repairs.py"
+      - "aurora-live/phase11_*.py"
+      - "aurora-live/phase14_*.py"
+      - "aurora-live/phase16_*.py"
+      - "aurora-live/phase27_*.py"
+      - "aurora-live/phase28_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase11.py"
+      - "aurora-live/tests/test_phase9.py"
+      - "aurora-live/tests/test_phase14.py"
+      - "aurora-live/tests/test_phase16.py"
+      - "aurora-live/tests/test_phase27.py"
+      - "aurora-live/tests/test_phase28.py"
+      - "aurora-live/docs/PHASE28_ACCURACY_HISTORY.md"
+      - ".github/workflows/phase28.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aurora-live/phase28_*.py"
+      - "aurora-live/phase9_repairs.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase28.py"
+      - "aurora-live/tests/test_phase9.py"
+      - ".github/workflows/phase28.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase28:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile release
+        run: >-
+          python -m py_compile
+          aurora-live/phase28_accuracy.py
+          aurora-live/phase28_complete.py
+          aurora-live/release_wsgi.py
+          aurora-live/tests/test_phase28.py
+      - name: Verify imports
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "import phase28_accuracy, phase28_complete, release_wsgi"
+      - name: Run Phase 28 tests
+        run: >-
+          python -m unittest discover -s aurora-live/tests
+          -p "test_phase28.py" -v
+      - name: Run canonical-history regressions
+        run: |
+          python -m unittest discover -s aurora-live/tests -p "test_phase9.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_phase11.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_phase14.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_phase16.py" -v
+          python -m unittest discover -s aurora-live/tests -p "test_phase27.py" -v
