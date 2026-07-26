@@ -201,6 +201,15 @@ class Phase27Tests(unittest.TestCase):
         self.assertEqual(gap["current_result"], "NOT_VERIFIED")
         self.assertIn("expired", gap["current_reason"])
 
+    def test_successful_baseline_requires_fresh_phase27_evidence(self):
+        result, reason = self.closure._criteria_result(
+            {"baseline_result": "AHEAD"},
+            None,
+            datetime.now(timezone.utc),
+        )
+        self.assertEqual(result, "NOT_VERIFIED")
+        self.assertIn("fresh Phase 27 evidence", reason)
+
     def test_workspace_isolation_and_admin_writes(self):
         actor = self.actor("phase27-a")
         other = self.actor("phase27-b")
