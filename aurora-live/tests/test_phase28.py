@@ -118,6 +118,11 @@ class Phase28Tests(unittest.TestCase):
         self.assertFalse(first["duplicate"])
         self.assertTrue(second["duplicate"])
         self.assertEqual(first["id"], second["id"])
+        with self.assertRaises(ValueError):
+            self.history.record_outcome(
+                self.actor,
+                self.outcome_payload(outcome="FALSE_POSITIVE"),
+            )
         self.history.record_outcome(
             self.actor,
             self.outcome_payload(
@@ -256,6 +261,16 @@ class Phase28Tests(unittest.TestCase):
         self.assertTrue(second["duplicate_content"])
         self.assertEqual(second["occurrence_count"], 2)
         self.assertEqual(second["independent_lineage_count"], 2)
+        unicode_record = self.history.record_fingerprint(
+            self.actor,
+            {
+                **payload,
+                "url": "https://primary.example/unicode-report",
+                "content": "港口关闭已由有关部门宣布。",
+                "evidence": {"artifact": "capture-unicode.json"},
+            },
+        )
+        self.assertRegex(unicode_record["content_hash"], r"^[0-9a-f]{64}$")
 
     def test_workspace_isolation_and_viewer_write_protection(self):
         recorded = self.history.record_outcome(
