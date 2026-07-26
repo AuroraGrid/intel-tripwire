@@ -357,4 +357,137 @@ class CompetitiveGapClosure:
         counts = {
             result: sum(row["current_result"] == result for row in rows)
             for result in sorted(RESULTS)
-        ×w¶‰žËkºwµç}ÝÌ€ô½¹¹•Ñ¥½¸¹•á•ÕÑ” (€€€€€€€€€€€€€€€€ˆˆˆ(€€€€€€€€€€€€€€€M1P€¨I=4½µÁ•Ñ¥Ñ¥Ù•}•Ù¥‘•¹”(€€€€€€€€€€€€€€€]!IÝ½É­ÍÁ…•}¥ôü9…Á}¥ôü(€€€€€€€€€€€€€€€=IH	d½‰Í•ÉÙ•‘}…ÐM±É•…Ñ•‘}…ÐM1%5%P€ü(€€€€€€€€€€€€€€€€ˆˆˆ°(€€€€€€€€€€€€€€€€¡Í•±˜¹}Ý½É­ÍÁ…”¡…Ñ½È¤°…Ál‰¥‰t°±¥µ¥Ð¤°(€€€€€€€€€€€€¤¹™•Ñ¡…±° ¤(€€€€€€€É•ÍÕ±Ð€ômt(€€€€€€€™½ÈÉ½Ü¥¸É½ÝÌè(€€€€€€€€€€€¥Ñ•´€ô‘¥Ð¡É½Ü¤(€€€€€€€€€€€¥Ñ•µl‰µ•ÑÉ¥Ì‰t€ô©Í½¸¹±½…‘Ì¡¥Ñ•µl‰µ•ÑÉ¥Ì‰t¤(€€€€€€€€€€€¥Ñ•µl‰•Ù¥‘•¹”‰t€ô©Í½¸¹±½…‘Ì¡¥Ñ•µl‰•Ù¥‘•¹”‰t¤(€€€€€€€€€€€¥Ñ•µl‰¥¹‘•Á•¹‘•¹Ð‰t€ô‰½½°¡¥Ñ•µl‰¥¹‘•Á•¹‘•¹Ð‰t¤(€€€€€€€€€€€É•ÍÕ±Ð¹…ÁÁ•¹¡¥Ñ•´¤(€€€€€€€É•ÑÕÉ¸É•ÍÕ±Ð(
+        }
+        strategic_open = [
+            row["slug"]
+            for row in rows
+            if row["strategic"] and not row["closed"]
+        ]
+        return {
+            "phase": 27,
+            "gaps": rows,
+            "counts": counts,
+            "strategic_open": strategic_open,
+            "strategic_gaps_closed": not strategic_open,
+            "superiority_claim_candidate": bool(rows) and not strategic_open,
+            "policy": {
+                "latest_evidence_wins": True,
+                "evidence_expires": True,
+                "failures_override_old_passes": True,
+                "external_claims_cannot_be_self_certified": True,
+                "feature_counts_do_not_prove_usability": True,
+            },
+        }
+
+    def record_evidence(
+        self, actor: dict[str, Any], payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        self.store.identity.require(actor, "admin")
+        gap = self._gap(actor, str(payload.get("capability") or ""))
+        result = str(payload.get("result") or "").strip().upper()
+        if result not in RESULTS:
+            raise ValueError("invalid competitive result")
+        source = str(payload.get("source") or "").strip()
+        if not source:
+            raise ValueError("source is required")
+        metrics = payload.get("metrics") or {}
+        evidence = payload.get("evidence") or {}
+        if not isinstance(metrics, dict) or not isinstance(evidence, dict):
+            raise ValueError("metrics and evidence must be objects")
+        if not any(
+            evidence.get(key) not in (None, "", [], {})
+            for key in EVIDENCE_REFERENCE_KEYS
+        ):
+            raise ValueError("evidence requires a verifiable reference")
+        for key, value in metrics.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                _finite_number(value, f"metrics.{key}")
+
+        independent = bool(payload.get("independent", False))
+        criteria = json.loads(gap["criteria"])
+        if (
+            result in {"AHEAD", "PARITY"}
+            and criteria.get("independent_required")
+            and not independent
+        ):
+            raise ValueError("independent evidence is required for closure")
+
+        observed = _parse_timestamp(str(payload.get("observed_at") or now()))
+        _reject_future_timestamp(observed, "observed_at")
+        max_age_days = int(
+            GAP_CATALOG.get(gap["slug"], {}).get("max_age_days", 30)
+        )
+        expires = observed + timedelta(days=max_age_days)
+        observed_text = _format_timestamp(observed)
+        expires_text = _format_timestamp(expires)
+        workspace = self._workspace(actor)
+        evidence_id = sid(
+            "competitive-evidence",
+            workspace,
+            gap["id"],
+            observed_text,
+            result,
+            json.dumps(evidence, sort_keys=True),
+        )
+        stamp = now()
+        with self.store.db() as connection:
+            connection.execute(
+                """
+                INSERT INTO competitive_evidence(
+                    id,workspace_id,gap_id,result,source,independent,
+                    metrics,evidence,observed_at,expires_at,actor_user_id,
+                    created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO NOTHING
+                """,
+                (
+                    evidence_id,
+                    workspace,
+                    gap["id"],
+                    result,
+                    source,
+                    int(independent),
+                    json.dumps(metrics, sort_keys=True),
+                    json.dumps(evidence, sort_keys=True),
+                    observed_text,
+                    expires_text,
+                    self._actor(actor),
+                    stamp,
+                ),
+            )
+        self.store.identity.audit(
+            workspace,
+            self._actor(actor),
+            "competitive_evidence.recorded",
+            "competitive_evidence",
+            evidence_id,
+            metadata={
+                "capability": gap["slug"],
+                "result": result,
+                "independent": independent,
+            },
+        )
+        return self.evidence(actor, gap["slug"], limit=1)[0]
+
+    def evidence(
+        self, actor: dict[str, Any], capability: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        gap = self._gap(actor, capability)
+        limit = max(1, min(500, int(limit)))
+        with self.store.db() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM competitive_evidence
+                WHERE workspace_id=? AND gap_id=?
+                ORDER BY observed_at DESC,created_at DESC LIMIT ?
+                """,
+                (self._workspace(actor), gap["id"], limit),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["metrics"] = json.loads(item["metrics"])
+            item["evidence"] = json.loads(item["evidence"])
+            item["independent"] = bool(item["independent"])
+            result.append(item)
+        return result
