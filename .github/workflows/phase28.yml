@@ -3,6 +3,7 @@ name: AURORA Phase 28 Accuracy History
 on:
   pull_request:
     paths:
+      - "aurora-live/phase9_repairs.py"
       - "aurora-live/phase11_*.py"
       - "aurora-live/phase14_*.py"
       - "aurora-live/phase16_*.py"
@@ -10,6 +11,7 @@ on:
       - "aurora-live/phase28_*.py"
       - "aurora-live/release_wsgi.py"
       - "aurora-live/tests/test_phase11.py"
+      - "aurora-live/tests/test_phase9.py"
       - "aurora-live/tests/test_phase14.py"
       - "aurora-live/tests/test_phase16.py"
       - "aurora-live/tests/test_phase27.py"
@@ -20,8 +22,10 @@ on:
     branches: ["main"]
     paths:
       - "aurora-live/phase28_*.py"
+      - "aurora-live/phase9_repairs.py"
       - "aurora-live/release_wsgi.py"
       - "aurora-live/tests/test_phase28.py"
+      - "aurora-live/tests/test_phase9.py"
       - ".github/workflows/phase28.yml"
   workflow_dispatch:
 
@@ -59,6 +63,7 @@ jobs:
           -p "test_phase28.py" -v
       - name: Run canonical-history regressions
         run: |
+          python -m unittest discover -s aurora-live/tests -p "test_phase9.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_phase11.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_phase14.py" -v
           python -m unittest discover -s aurora-live/tests -p "test_phase16.py" -v
