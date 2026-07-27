@@ -1,0 +1,53 @@
+name: AURORA Phase 30 Verifiable Distribution
+
+on:
+  pull_request:
+    paths:
+      - "aurora-live/phase29_*.py"
+      - "aurora-live/phase30_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase29.py"
+      - "aurora-live/tests/test_phase30.py"
+      - "aurora-live/docs/PHASE30_VERIFIABLE_DISTRIBUTION.md"
+      - ".github/workflows/phase30.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "aurora-live/phase30_*.py"
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase30.py"
+      - ".github/workflows/phase30.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase30:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile release
+        run: >-
+          python -m py_compile
+          aurora-live/phase30_distribution.py
+          aurora-live/phase30_complete.py
+          aurora-live/release_wsgi.py
+          aurora-live/tests/test_phase30.py
+      - name: Verify imports
+        working-directory: aurora-live
+        env:
+          AURORA_GROQ_ENABLED: "false"
+        run: python -c "import phase30_distribution, phase30_complete, release_wsgi"
+      - name: Run Phase 30 tests
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase30.py" -v
+      - name: Run Phase 29 regression
+        run: python -m unittest discover -s aurora-live/tests -p "test_phase29.py" -v
