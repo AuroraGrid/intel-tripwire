@@ -40,10 +40,15 @@ def request(app, path, method="GET", body=None, token=""):
     if token:
         environ["HTTP_AUTHORIZATION"] = "Bearer " + token
     captured = {}
+
     def start(status, headers):
         captured.update(status=status, headers=dict(headers))
+
     result = b"".join(app(environ, start))
-    return {"code": int(captured["status"].split()[0]), "json": json.loads(result) if result else None}
+    return {
+        "code": int(captured["status"].split()[0]),
+        "json": json.loads(result) if result else None,
+    }
 
 
 class Phase29Tests(unittest.TestCase):
@@ -51,9 +56,13 @@ class Phase29Tests(unittest.TestCase):
         CURRENT_WORKSPACE.set(None)
         self.temp = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.temp.name) / "phase29.db")
-        _, self.token = self.store.create_user(f"admin-{uuid.uuid4().hex}@example.com", "admin")
+        _, self.token = self.store.create_user(
+            f"admin-{uuid.uuid4().hex}@example.com", "admin"
+        )
         self.actor = self.store.auth(self.token)
-        _, viewer_token = self.store.create_user(f"viewer-{uuid.uuid4().hex}@example.com", "viewer")
+        _, viewer_token = self.store.create_user(
+            f"viewer-{uuid.uuid4().hex}@example.com", "viewer"
+        )
         self.viewer = self.store.auth(viewer_token)
         self.viewer["workspace_id"] = self.actor["workspace_id"]
         self.enterprise = EnterpriseControlPlane(self.store)
@@ -95,14 +104,25 @@ class Phase29Tests(unittest.TestCase):
 
     def test_policy_versions_are_append_only(self):
         first = self.enterprise.publish_policy(self.actor, self.policy_payload())
-        second = self.enterprise.publish_policy(self.actor, self.policy_payload(title="Updated baseline"))
+        second = self.enterprise.publish_policy(
+            self.actor, self.policy_payload(title="Updated baseline")
+        )
         self.assertEqual((first["version"], second["version"]), (1, 2))
-        self.assertEqual(len(self.enterprise.policies(self.actor, "production-baseline")), 2)
+        self.assertEqual(
+            len(self.enterprise.policies(self.actor, "production-baseline")), 2
+        )
 
     def test_compliance_requires_current_attestation(self):
         self.enterprise.publish_policy(self.actor, self.policy_payload())
-        deployment = self.enterprise.register_deployment(self.actor, self.deployment_payload())
-        self.assertEqual(self.enterprise.compliance(self.actor, deployment["id"])["deployments"][0]["status"], "NOT_VERIFIED")
+        deployment = self.enterprise.register_deployment(
+            self.actor, self.deployment_payload()
+        )
+        self.assertEqual(
+            self.enterprise.compliance(self.actor, deployment["id"])[
+                "deployments"
+            ][0]["status"],
+            "NOT_VERIFIED",
+        )
         payload = {
             "deployment_id": deployment["id"],
             "control_key": "independent_security_review",
@@ -114,11 +134,25 @@ class Phase29Tests(unittest.TestCase):
         second = self.enterprise.record_attestation(self.actor, payload)
         self.assertEqual(first["id"], second["id"])
         self.assertTrue(second["duplicate"])
-        self.assertTrue(self.enterprise.compliance(self.actor, deployment["id"])["enterprise_ready"])
+        self.assertTrue(
+            self.enterprise.compliance(self.actor, deployment["id"])[
+                "enterprise_ready"
+            ]
+        )
 
     def test_failed_control_and_region_block_readiness(self):
-        self.enterprise.publish_policy(self.actor, self.policy_payload(controls={"encryption_at_rest": True}))
-        deployment = self.enterprise.register_deployment(self.actor, self.deployment_payload(region="EU-CENTRAL", data_residency="EU-CENTRAL", encryption_at_rest=False))
+        self.enterprise.publish_policy(
+            self.actor,
+            self.policy_payload(controls={"encryption_at_rest": True}),
+        )
+        deployment = self.enterprise.register_deployment(
+            self.actor,
+            self.deployment_payload(
+                region="EU-CENTRAL",
+                data_residency="EU-CENTRAL",
+                encryption_at_rest=False,
+            ),
+        )
         result = self.enterprise.compliance(self.actor, deployment["id"])
         self.assertEqual(result["deployments"][0]["status"], "FAIL")
         self.assertFalse(result["enterprise_ready"])
@@ -131,15 +165,32 @@ class Phase29Tests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.enterprise.policy(other, policy["id"])
         with self.assertRaises(PermissionError):
-            self.enterprise.publish_policy(self.viewer, self.policy_payload(policy_key="viewer-policy"))
+            self.enterprise.publish_policy(
+                self.viewer,
+                self.policy_payload(policy_key="viewer-policy"),
+            )
 
     def test_application_routes_and_public_document(self):
-        app = Phase29Application(ProductionApplication(create_application(self.store)))
+        CURRENT_WORKSPACE.set(None)
+        app = Phase29Application(
+            base=ProductionApplication(create_application(store=self.store))
+        )
         public = request(app, "/.well-known/aurora-enterprise.json")
         self.assertEqual(public["json"]["phase"], 29)
-        created = request(app, "/api/platform/enterprise/policies", "POST", self.policy_payload(), self.token)
+        created = request(
+            app,
+            "/api/platform/enterprise/policies",
+            "POST",
+            self.policy_payload(),
+            self.token,
+        )
         self.assertEqual(created["code"], 201)
-        listed = request(app, "/api/platform/enterprise/policies", token=self.token)
+        CURRENT_WORKSPACE.set(None)
+        listed = request(
+            app,
+            "/api/platform/enterprise/policies",
+            token=self.token,
+        )
         self.assertEqual(len(listed["json"]["policies"]), 1)
 
 
