@@ -1,0 +1,40 @@
+name: AURORA Phase 33 Regional Webcams
+
+on:
+  pull_request:
+    paths:
+      - 'aurora-live/phase33_*.py'
+      - 'aurora-live/tests/test_phase33.py'
+      - 'aurora-live/release_wsgi.py'
+      - '.github/workflows/phase33.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase33_*.py'
+      - 'aurora-live/tests/test_phase33.py'
+      - 'aurora-live/release_wsgi.py'
+      - '.github/workflows/phase33.yml'
+
+jobs:
+  phase33:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile release chain
+        working-directory: aurora-live
+        run: python -m py_compile phase33_webcams.py phase33_complete.py release_wsgi.py tests/test_phase33.py
+      - name: Run Phase 33 qualification
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase33
+      - name: Run Phase 32 regression
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase32
+      - name: Verify release import
+        working-directory: aurora-live
+        run: python -c "import release_wsgi; assert release_wsgi.application.__class__.__name__ == 'Phase33Application'"
