@@ -203,7 +203,7 @@ class NasaEpicAdapter(SourceAdapter):
             "attribution": "Credit NASA EPIC Team and NOAA DSCOVR",
             "license_note": "NASA EPIC imagery is available for reuse with credit under NASA media usage guidance",
             "refresh_interval_seconds": 3600,
-            "max_age_seconds": 1_209_600,
+            "max_age_seconds": 604_800,
         }
         return [
             ImageCandidate(
