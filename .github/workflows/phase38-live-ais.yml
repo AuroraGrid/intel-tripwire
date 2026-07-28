@@ -1,0 +1,62 @@
+name: AURORA Phase 38 Live AIS Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/phase38-live-ais.yml'
+      - 'aurora-live/phase38_providers.py'
+      - 'aurora-live/phase38_worker.py'
+      - 'aurora-live/phase38_transport.py'
+
+permissions:
+  contents: read
+
+jobs:
+  live-ais:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AURORA_AISSTREAM_API_KEY: ${{ secrets.AURORA_AISSTREAM_API_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install -r aurora-live/requirements.txt
+          python -m pip install websocket-client
+
+      - name: Verify secret is configured
+        shell: bash
+        run: |
+          test -n "$AURORA_AISSTREAM_API_KEY"
+
+      - name: Capture one live AIS observation
+        working-directory: aurora-live
+        run: |
+          python phase38_worker.py \
+            --provider maritime \
+            --database /tmp/aurora-live-ais.sqlite3 \
+            --max-messages 1 \
+            --timeout 45
+
+      - name: Verify durable maritime evidence
+        working-directory: aurora-live
+        run: |
+          python - <<'PY'
+          from phase38_transport import TransportStore
+
+          store = TransportStore('/tmp/aurora-live-ais.sqlite3')
+          rows = store.observations(domain='maritime', provider='aisstream', limit=10)
+          providers = store.providers(domain='maritime')
+          assert rows, 'no AIS observations were durably persisted'
+          assert any(row['provider'] == 'aisstream' and row['state'] == 'ONLINE' for row in providers), 'AISStream provider did not qualify online'
+          print({'observations': len(rows), 'provider_state': 'ONLINE'})
+          PY
