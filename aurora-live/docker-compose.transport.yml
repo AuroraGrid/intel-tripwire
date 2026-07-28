@@ -1,0 +1,31 @@
+services:
+  aurora-transport-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "phase38_worker.py", "--loop", "--provider", "all"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AURORA_DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      AURORA_AISSTREAM_API_KEY: ${AURORA_AISSTREAM_API_KEY:?set AURORA_AISSTREAM_API_KEY}
+      AURORA_TRANSPORT_PROVIDERS: ${AURORA_TRANSPORT_PROVIDERS:-all}
+      AURORA_AVIATION_INTERVAL_SECONDS: ${AURORA_AVIATION_INTERVAL_SECONDS:-300}
+      AURORA_MARITIME_INTERVAL_SECONDS: ${AURORA_MARITIME_INTERVAL_SECONDS:-60}
+      AURORA_TRANSPORT_HEARTBEAT_SECONDS: ${AURORA_TRANSPORT_HEARTBEAT_SECONDS:-30}
+      AURORA_TRANSPORT_HEARTBEAT_STALE_SECONDS: ${AURORA_TRANSPORT_HEARTBEAT_STALE_SECONDS:-120}
+      AURORA_TRANSPORT_STALE_SECONDS: ${AURORA_TRANSPORT_STALE_SECONDS:-900}
+      AURORA_AIS_MAX_MESSAGES: ${AURORA_AIS_MAX_MESSAGES:-25}
+      AURORA_TRANSPORT_TIMEOUT_SECONDS: ${AURORA_TRANSPORT_TIMEOUT_SECONDS:-45}
+      AURORA_TRANSPORT_WORKER_NAME: ${AURORA_TRANSPORT_WORKER_NAME:-phase38-transport}
+    healthcheck:
+      test: ["CMD", "python", "phase38_worker_health.py"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
