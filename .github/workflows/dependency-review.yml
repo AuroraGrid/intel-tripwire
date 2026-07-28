@@ -2,6 +2,15 @@ name: Dependency review
 
 on:
   pull_request:
+    paths:
+      - 'aurora-live/requirements.txt'
+      - '.github/workflows/dependency-review.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/requirements.txt'
+      - '.github/workflows/dependency-review.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,7 +22,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          fail-on-severity: high
+          python-version: '3.12'
+      - name: Install pip-audit
+        run: python -m pip install 'pip-audit>=2.9,<3'
+      - name: Audit runtime dependencies
+        run: python -m pip_audit -r aurora-live/requirements.txt --progress-spinner off
