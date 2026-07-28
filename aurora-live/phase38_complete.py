@@ -16,6 +16,7 @@ class Phase38Application(Phase37Application):
             os.getenv("AURORA_TRANSPORT_DB")
             or os.getenv("AURORA_OPERATIONAL_DB")
             or os.getenv("AURORA_DATABASE_URL")
+            or os.getenv("DATABASE_URL")
             or ":memory:"
         )
         self.transport_store = TransportStore(target)
