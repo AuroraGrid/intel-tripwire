@@ -41,6 +41,7 @@ class Phase38Application(Phase37Application):
                         "maritime_provider": "AISStream environment-secret WebSocket adapter",
                         "provider_registration_is_not_live_evidence": True,
                         "transport_live_requires_successful_fresh_observations": True,
+                        "production_worker_requires_persistent_database": True,
                         "webcam_qualification_remains_independent": True,
                     },
                     rid,
@@ -49,11 +50,30 @@ class Phase38Application(Phase37Application):
             if path == "/api/public/transport/coverage" and method == "GET":
                 return self._response(environ, start_response, 200, self.transport_store.coverage(), rid)
 
+            if path == "/api/public/transport/health" and method == "GET":
+                query = self._query(environ)
+                maximum_age = int(self._value(query, "max_age_seconds", "0") or 0)
+                payload = self.transport_store.health(maximum_age or None)
+                return self._response(environ, start_response, 200, payload, rid)
+
             if path == "/api/public/transport/providers" and method == "GET":
                 query = self._query(environ)
                 domain = self._value(query, "domain", "")
                 providers = self.transport_store.providers(domain)
                 return self._response(environ, start_response, 200, {"providers": providers, "total": len(providers)}, rid)
+
+            if path == "/api/public/transport/runs" and method == "GET":
+                query = self._query(environ)
+                rows = self.transport_store.provider_runs(
+                    domain=self._value(query, "domain", ""),
+                    provider=self._value(query, "provider", ""),
+                    limit=int(self._value(query, "limit", "100")),
+                )
+                return self._response(environ, start_response, 200, {"runs": rows, "total": len(rows)}, rid)
+
+            if path == "/api/public/transport/workers" and method == "GET":
+                rows = self.transport_store.workers()
+                return self._response(environ, start_response, 200, {"workers": rows, "total": len(rows)}, rid)
 
             if path == "/api/public/transport/configuration" and method == "GET":
                 return self._response(environ, start_response, 200, self.transport_providers.configuration(), rid)
@@ -118,12 +138,16 @@ class Phase38Application(Phase37Application):
                 return self._response(environ, start_response, 201, {"observation_id": identifier, **observation.value()}, rid)
 
             if path == "/api/public/global-operating-picture" and method == "GET":
+                transport_health = self.transport_store.health()
                 payload = {
                     "phase": 38,
                     "transport_coverage": self.transport_store.coverage(),
+                    "transport_health": transport_health,
                     "transport_configuration": self.transport_providers.configuration(),
                     "transport_providers": self.transport_store.providers(),
+                    "recent_transport_runs": self.transport_store.provider_runs(limit=20),
                     "recent_transport_observations": self.transport_store.observations(limit=100),
+                    "transport_workers": transport_health["workers"],
                     "webcam_coverage": self.webcams.coverage(),
                     "webcam_matrix": self.webcams.matrix(),
                     "webcams_fully_qualified": self.webcams.coverage()["fully_qualified"],
