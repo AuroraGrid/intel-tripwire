@@ -1,0 +1,44 @@
+name: AURORA Phase 34 Live Imagery
+
+on:
+  pull_request:
+    paths:
+      - 'aurora-live/phase34_*.py'
+      - 'aurora-live/tests/test_phase34.py'
+      - 'aurora-live/docs/PHASE34_LIVE_IMAGERY.md'
+      - 'aurora-live/release_wsgi.py'
+      - '.github/workflows/phase34.yml'
+      - '.github/workflows/phase33.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase34_*.py'
+      - 'aurora-live/tests/test_phase34.py'
+      - 'aurora-live/docs/PHASE34_LIVE_IMAGERY.md'
+      - 'aurora-live/release_wsgi.py'
+      - '.github/workflows/phase34.yml'
+      - '.github/workflows/phase33.yml'
+
+jobs:
+  phase34:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile release chain
+        working-directory: aurora-live
+        run: python -m py_compile phase34_imagery.py phase34_complete.py release_wsgi.py tests/test_phase34.py
+      - name: Run Phase 34 qualification
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase34
+      - name: Run Phase 33 regression
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase33
+      - name: Verify release import
+        working-directory: aurora-live
+        run: python -c "import release_wsgi; assert release_wsgi.application.__class__.__name__ == 'Phase34Application'"
