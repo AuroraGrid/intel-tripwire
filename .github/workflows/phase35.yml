@@ -1,0 +1,70 @@
+name: AURORA Phase 35 Real Ingestion
+
+on:
+  pull_request:
+    paths:
+      - 'aurora-live/phase35_*.py'
+      - 'aurora-live/tests/test_phase35.py'
+      - 'aurora-live/docs/PHASE35_REAL_INGESTION.md'
+      - 'aurora-live/release_wsgi.py'
+      - '.github/workflows/phase35.yml'
+      - '.github/workflows/phase34.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase35_*.py'
+      - 'aurora-live/tests/test_phase35.py'
+      - 'aurora-live/docs/PHASE35_REAL_INGESTION.md'
+      - 'aurora-live/release_wsgi.py'
+      - '.github/workflows/phase35.yml'
+      - '.github/workflows/phase34.yml'
+  workflow_dispatch:
+
+jobs:
+  phase35:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile ingestion release chain
+        working-directory: aurora-live
+        run: python -m py_compile phase35_sources.py phase35_ingestion.py phase35_worker.py phase35_complete.py release_wsgi.py tests/test_phase35.py
+      - name: Run Phase 35 qualification
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase35
+      - name: Run Phase 34 regression
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase34
+      - name: Verify release compatibility
+        working-directory: aurora-live
+        run: python -c "import release_wsgi; from phase35_complete import Phase35Application; assert isinstance(release_wsgi.application, Phase35Application)"
+
+  live-official-source-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Run NASA EPIC live ingestion
+        working-directory: aurora-live
+        run: python phase35_worker.py --adapter nasa-epic --database /tmp/aurora-proof.sqlite3
+      - name: Verify persisted qualified observation
+        working-directory: aurora-live
+        run: |
+          python - <<'PY'
+          import sqlite3
+          connection = sqlite3.connect('/tmp/aurora-proof.sqlite3')
+          run = connection.execute("SELECT status, succeeded FROM ingestion_runs ORDER BY run_id DESC LIMIT 1").fetchone()
+          observation = connection.execute("SELECT state, content_sha256, byte_length, width, height FROM imagery_observations ORDER BY observation_id DESC LIMIT 1").fetchone()
+          assert run == ('SUCCESS', 1), run
+          assert observation[0] in {'FRESH', 'STALE'}, observation
+          assert len(observation[1]) == 64 and observation[2] > 0 and observation[3] > 0 and observation[4] > 0, observation
+          print({'run': run, 'observation': observation})
+          PY
