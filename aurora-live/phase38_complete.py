@@ -4,6 +4,7 @@ import os
 import uuid
 
 from phase37_complete import Phase37Application
+from phase38_providers import TransportProviderCoordinator
 from phase38_transport import TransportObservation, TransportRegistry, TransportStore
 from platform_wsgi import HTTPError, RID_RE
 
@@ -19,6 +20,7 @@ class Phase38Application(Phase37Application):
         )
         self.transport_store = TransportStore(target)
         self.transport = TransportRegistry(self.transport_store)
+        self.transport_providers = TransportProviderCoordinator(self.transport_store)
 
     def __call__(self, environ, start_response):
         path = str(environ.get("PATH_INFO") or "")
@@ -35,6 +37,8 @@ class Phase38Application(Phase37Application):
                         "phase": 38,
                         "capability": "durable aviation and maritime intelligence infrastructure",
                         "domains": ["aviation", "maritime"],
+                        "aviation_provider": "AviationWeather.gov keyless official API",
+                        "maritime_provider": "AISStream environment-secret WebSocket adapter",
                         "provider_registration_is_not_live_evidence": True,
                         "transport_live_requires_successful_fresh_observations": True,
                         "webcam_qualification_remains_independent": True,
@@ -50,6 +54,9 @@ class Phase38Application(Phase37Application):
                 domain = self._value(query, "domain", "")
                 providers = self.transport_store.providers(domain)
                 return self._response(environ, start_response, 200, {"providers": providers, "total": len(providers)}, rid)
+
+            if path == "/api/public/transport/configuration" and method == "GET":
+                return self._response(environ, start_response, 200, self.transport_providers.configuration(), rid)
 
             if path == "/api/public/transport/observations" and method == "GET":
                 query = self._query(environ)
@@ -70,6 +77,27 @@ class Phase38Application(Phase37Application):
                 if not provider:
                     raise HTTPError(404, "not_found", "route not found")
                 return self._response(environ, start_response, 200, self.transport.observe_provider(provider, self.platform.body(environ)), rid)
+
+            if path == "/api/platform/transport/run/aviation" and method == "POST":
+                self._user(environ)
+                body = self.platform.body(environ)
+                result = self.transport_providers.run_aviation(
+                    bbox=str(body.get("bbox") or "-90,-180,90,180"),
+                    hours=int(body.get("hours") or 1),
+                    timeout=int(body.get("timeout") or 20),
+                )
+                status = 200 if result.successful else 502
+                return self._response(environ, start_response, status, result.value(), rid)
+
+            if path == "/api/platform/transport/run/maritime" and method == "POST":
+                self._user(environ)
+                body = self.platform.body(environ)
+                result = self.transport_providers.run_maritime(
+                    max_messages=int(body.get("max_messages") or 25),
+                    timeout=int(body.get("timeout") or 20),
+                )
+                status = 200 if result.successful else 503
+                return self._response(environ, start_response, status, result.value(), rid)
 
             if path == "/api/platform/transport/observations" and method == "POST":
                 self._user(environ)
@@ -93,6 +121,7 @@ class Phase38Application(Phase37Application):
                 payload = {
                     "phase": 38,
                     "transport_coverage": self.transport_store.coverage(),
+                    "transport_configuration": self.transport_providers.configuration(),
                     "transport_providers": self.transport_store.providers(),
                     "recent_transport_observations": self.transport_store.observations(limit=100),
                     "webcam_coverage": self.webcams.coverage(),
