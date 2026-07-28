@@ -164,7 +164,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--database",
-        default=os.getenv("AURORA_TRANSPORT_DB") or os.getenv("AURORA_DATABASE_URL") or "var/aurora_transport.sqlite3",
+        default=(
+            os.getenv("AURORA_TRANSPORT_DB")
+            or os.getenv("AURORA_DATABASE_URL")
+            or os.getenv("DATABASE_URL")
+            or "var/aurora_transport.sqlite3"
+        ),
     )
     parser.add_argument("--bbox", default=os.getenv("AURORA_AVIATION_BBOX", "-90,-180,90,180"))
     parser.add_argument("--hours", type=int, default=int(os.getenv("AURORA_AVIATION_HOURS", "1")))
