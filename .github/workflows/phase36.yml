@@ -74,66 +74,52 @@ jobs:
         working-directory: aurora-live
         run: python -m unittest tests.test_phase36.Phase36Tests.test_postgres_operational_store_contract
 
-  live-noaa-proof:
+  live-region-proof:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - region: Oceania
+            adapter: jma-himawari-oceania
+          - region: Africa
+            adapter: eumetsat-africa
+          - region: Asia
+            adapter: jma-himawari-asia
+          - region: Middle-East
+            adapter: eumetsat-middle-east
+          - region: Europe
+            adapter: eumetsat-europe
+          - region: North-America
+            adapter: noaa-goes
+          - region: South-America
+            adapter: noaa-goes-south-america
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - run: python -m pip install -r aurora-live/requirements.txt
-      - name: Run live NOAA GOES-19 ingestion
+      - name: Run official regional adapter
         working-directory: aurora-live
-        run: python phase36_worker.py --adapter noaa-goes --force --database /tmp/aurora-noaa.sqlite3
-      - name: Verify persisted NOAA observation
+        run: python phase36_worker.py --adapter "${{ matrix.adapter }}" --force --database "/tmp/aurora-${{ matrix.adapter }}.sqlite3"
+      - name: Verify durable qualified observation
         working-directory: aurora-live
+        env:
+          ADAPTER: ${{ matrix.adapter }}
+          REGION: ${{ matrix.region }}
         run: |
           python - <<'PY'
+          import os
           import sqlite3
-          connection = sqlite3.connect('/tmp/aurora-noaa.sqlite3')
-          provider = connection.execute("SELECT last_status, circuit_state FROM provider_health WHERE adapter='noaa-goes'").fetchone()
-          observation = connection.execute("SELECT state, content_sha256, byte_length, width, height FROM imagery_observations ORDER BY observation_id DESC LIMIT 1").fetchone()
-          assert provider == ('SUCCESS', 'CLOSED'), provider
+          adapter = os.environ['ADAPTER']
+          path = f'/tmp/aurora-{adapter}.sqlite3'
+          connection = sqlite3.connect(path)
+          provider = connection.execute("SELECT last_status, circuit_state FROM provider_health WHERE adapter=?", (adapter,)).fetchone()
+          observation = connection.execute("SELECT state, content_sha256, byte_length, width, height FROM imagery_observations WHERE adapter=? ORDER BY observation_id DESC LIMIT 1", (adapter,)).fetchone()
+          assert provider == ('SUCCESS', 'CLOSED'), (os.environ['REGION'], provider)
           assert observation[0] in {'FRESH', 'STALE'}, observation
           assert len(observation[1]) == 64 and observation[2] > 0 and observation[3] > 0 and observation[4] > 0, observation
-          print({'provider': provider, 'observation': observation})
-          PY
-
-  live-seven-region-proof:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - run: python -m pip install -r aurora-live/requirements.txt
-      - name: Run all seven official regional adapters
-        working-directory: aurora-live
-        run: >-
-          python phase36_worker.py --force --database /tmp/aurora-regions.sqlite3
-          --adapter jma-himawari-oceania
-          --adapter eumetsat-africa
-          --adapter jma-himawari-asia
-          --adapter eumetsat-middle-east
-          --adapter eumetsat-europe
-          --adapter noaa-goes
-          --adapter noaa-goes-south-america
-      - name: Verify seven-region durable qualification
-        working-directory: aurora-live
-        run: |
-          python - <<'PY'
-          import sqlite3
-          from phase36_sources import BASELINE_REGION_ADAPTERS
-          connection = sqlite3.connect('/tmp/aurora-regions.sqlite3')
-          providers = dict(connection.execute("SELECT adapter, last_status FROM provider_health"))
-          missing = {region: adapter for region, adapter in BASELINE_REGION_ADAPTERS.items() if providers.get(adapter) != 'SUCCESS'}
-          observations = connection.execute("SELECT adapter, state, content_sha256, byte_length, width, height FROM imagery_observations").fetchall()
-          assert not missing, missing
-          assert len(observations) >= 7, observations
-          for row in observations:
-              assert row[1] in {'FRESH', 'STALE'}, row
-              assert len(row[2]) == 64 and row[3] > 0 and row[4] > 0 and row[5] > 0, row
-          print({'regions': BASELINE_REGION_ADAPTERS, 'providers': providers, 'observations': len(observations)})
+          print({'region': os.environ['REGION'], 'adapter': adapter, 'provider': provider, 'observation': observation})
           PY
