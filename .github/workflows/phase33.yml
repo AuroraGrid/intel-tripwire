@@ -35,6 +35,6 @@ jobs:
       - name: Run Phase 32 regression
         working-directory: aurora-live
         run: python -m unittest tests.test_phase32
-      - name: Verify release import
+      - name: Verify release compatibility
         working-directory: aurora-live
-        run: python -c "import release_wsgi; assert release_wsgi.application.__class__.__name__ == 'Phase33Application'"
+        run: python -c "import release_wsgi; from phase33_complete import Phase33Application; assert isinstance(release_wsgi.application, Phase33Application)"
