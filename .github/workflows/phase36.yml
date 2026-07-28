@@ -1,0 +1,139 @@
+name: AURORA Phase 36 Operational Coverage
+
+on:
+  pull_request:
+    paths:
+      - 'aurora-live/phase36_*.py'
+      - 'aurora-live/tests/test_phase36.py'
+      - 'aurora-live/docs/PHASE36_OPERATIONAL_COVERAGE.md'
+      - 'aurora-live/release_wsgi.py'
+      - '.github/workflows/phase36.yml'
+      - '.github/workflows/phase35.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase36_*.py'
+      - 'aurora-live/tests/test_phase36.py'
+      - 'aurora-live/docs/PHASE36_OPERATIONAL_COVERAGE.md'
+      - 'aurora-live/release_wsgi.py'
+      - '.github/workflows/phase36.yml'
+      - '.github/workflows/phase35.yml'
+  workflow_dispatch:
+
+jobs:
+  phase36:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile operational release chain
+        working-directory: aurora-live
+        run: python -m py_compile phase36_sources.py phase36_store.py phase36_operations.py phase36_worker.py phase36_complete.py release_wsgi.py tests/test_phase36.py
+      - name: Run Phase 36 qualification
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase36
+      - name: Run Phase 35 regression
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase35
+      - name: Verify release compatibility
+        working-directory: aurora-live
+        run: python -c "import release_wsgi; from phase36_complete import Phase36Application; assert isinstance(release_wsgi.application, Phase36Application)"
+
+  postgres-durability:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aurora
+          POSTGRES_PASSWORD: aurora
+          POSTGRES_DB: aurora
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aurora -d aurora"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      AURORA_PHASE36_POSTGRES_DSN: postgresql://aurora:aurora@localhost:5432/aurora
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Prove PostgreSQL operational-store contract
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase36.Phase36Tests.test_postgres_operational_store_contract
+
+  live-noaa-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Run live NOAA GOES-19 ingestion
+        working-directory: aurora-live
+        run: python phase36_worker.py --adapter noaa-goes --force --database /tmp/aurora-noaa.sqlite3
+      - name: Verify persisted NOAA observation
+        working-directory: aurora-live
+        run: |
+          python - <<'PY'
+          import sqlite3
+          connection = sqlite3.connect('/tmp/aurora-noaa.sqlite3')
+          provider = connection.execute("SELECT last_status, circuit_state FROM provider_health WHERE adapter='noaa-goes'").fetchone()
+          observation = connection.execute("SELECT state, content_sha256, byte_length, width, height FROM imagery_observations ORDER BY observation_id DESC LIMIT 1").fetchone()
+          assert provider == ('SUCCESS', 'CLOSED'), provider
+          assert observation[0] in {'FRESH', 'STALE'}, observation
+          assert len(observation[1]) == 64 and observation[2] > 0 and observation[3] > 0 and observation[4] > 0, observation
+          print({'provider': provider, 'observation': observation})
+          PY
+
+  live-seven-region-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - name: Run all seven official regional adapters
+        working-directory: aurora-live
+        run: >-
+          python phase36_worker.py --force --database /tmp/aurora-regions.sqlite3
+          --adapter jma-himawari-oceania
+          --adapter eumetsat-africa
+          --adapter jma-himawari-asia
+          --adapter eumetsat-middle-east
+          --adapter eumetsat-europe
+          --adapter noaa-goes
+          --adapter noaa-goes-south-america
+      - name: Verify seven-region durable qualification
+        working-directory: aurora-live
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from phase36_sources import BASELINE_REGION_ADAPTERS
+          connection = sqlite3.connect('/tmp/aurora-regions.sqlite3')
+          providers = dict(connection.execute("SELECT adapter, last_status FROM provider_health"))
+          missing = {region: adapter for region, adapter in BASELINE_REGION_ADAPTERS.items() if providers.get(adapter) != 'SUCCESS'}
+          observations = connection.execute("SELECT adapter, state, content_sha256, byte_length, width, height FROM imagery_observations").fetchall()
+          assert not missing, missing
+          assert len(observations) >= 7, observations
+          for row in observations:
+              assert row[1] in {'FRESH', 'STALE'}, row
+              assert len(row[2]) == 64 and row[3] > 0 and row[4] > 0 and row[5] > 0, row
+          print({'regions': BASELINE_REGION_ADAPTERS, 'providers': providers, 'observations': len(observations)})
+          PY
