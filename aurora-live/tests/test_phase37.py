@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -137,6 +138,15 @@ class Phase37Tests(unittest.TestCase):
             result = registry.observe(item["webcam_id"], {"health": "DEGRADED"})
         self.assertEqual(result["health"], "OFFLINE")
         self.assertEqual(result["consecutive_failures"], 3)
+
+    @unittest.skipUnless(os.getenv("AURORA_PHASE37_POSTGRES_DSN"), "PostgreSQL DSN not configured")
+    def test_postgres_webcam_store_contract(self):
+        registry = DurableWebcamRegistry(WebcamStore(os.environ["AURORA_PHASE37_POSTGRES_DSN"]))
+        item = registry.register(source("Oceania", 937))
+        registry.observe(item["webcam_id"], {"health": "ONLINE", "detail": {"database": "postgres"}})
+        restored = registry.get(item["webcam_id"])
+        self.assertEqual(restored["health"], "ONLINE")
+        self.assertTrue(registry.store.health_history(item["webcam_id"]))
 
 
 if __name__ == "__main__":
