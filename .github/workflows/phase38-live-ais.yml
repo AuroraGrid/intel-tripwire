@@ -2,6 +2,12 @@ name: AURORA Phase 38 Live AIS Qualification
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/phase38-live-ais.yml'
+      - 'aurora-live/phase38_providers.py'
+      - 'aurora-live/phase38_worker.py'
   push:
     branches:
       - agent/phase38-ais-live-run-20260728
