@@ -1,0 +1,93 @@
+name: AURORA Phase 38 Production Transport
+
+on:
+  pull_request:
+    paths:
+      - 'aurora-live/phase38_*.py'
+      - 'aurora-live/tests/test_phase38*.py'
+      - 'aurora-live/requirements.txt'
+      - 'aurora-live/docker-compose.transport.yml'
+      - 'aurora-live/docs/PHASE38_PROVIDER_ADAPTERS.md'
+      - '.github/workflows/phase38-production.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase38_*.py'
+      - 'aurora-live/tests/test_phase38*.py'
+      - 'aurora-live/requirements.txt'
+      - 'aurora-live/docker-compose.transport.yml'
+      - 'aurora-live/docs/PHASE38_PROVIDER_ADAPTERS.md'
+      - '.github/workflows/phase38-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile transport operations
+        working-directory: aurora-live
+        run: python -m py_compile phase38_transport.py phase38_providers.py phase38_worker.py phase38_worker_health.py phase38_complete.py tests/test_phase38.py
+      - name: Run deterministic transport qualification
+        working-directory: aurora-live
+        env:
+          AURORA_AISSTREAM_API_KEY: ''
+        run: python -m unittest tests.test_phase38
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: aurora
+          POSTGRES_USER: aurora
+          POSTGRES_PASSWORD: aurora-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aurora -d aurora"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+      - name: Qualify PostgreSQL transport durability
+        working-directory: aurora-live
+        env:
+          AURORA_TEST_POSTGRES_URL: postgresql://aurora:aurora-test@127.0.0.1:5432/aurora
+        run: python -m unittest tests.test_phase38_postgres
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production transport overlay
+        working-directory: aurora-live
+        env:
+          POSTGRES_PASSWORD: compose-test-password
+          AURORA_BOOTSTRAP_SECRET: compose-test-bootstrap
+          AURORA_WEBHOOK_SECRET: compose-test-webhook
+          AURORA_CORS_ORIGIN: https://example.invalid
+          AURORA_ALLOWED_HOSTS: example.invalid
+          AURORA_AISSTREAM_API_KEY: compose-test-ais-secret
+        run: docker compose -f docker-compose.yml -f docker-compose.transport.yml config --quiet
+      - name: Build production image
+        working-directory: aurora-live
+        run: docker build -t aurora-phase38-production .
