@@ -1,0 +1,70 @@
+name: AURORA Phase 38 Live AIS Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/phase38-live-ais.yml'
+      - 'aurora-live/phase38_providers.py'
+      - 'aurora-live/phase38_worker.py'
+      - 'aurora-live/phase38_transport.py'
+
+permissions:
+  contents: read
+
+jobs:
+  live-ais-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AURORA_AISSTREAM_API_KEY: ${{ secrets.AURORA_AISSTREAM_API_KEY }}
+      AURORA_TRANSPORT_DB: /tmp/aurora-live-ais.sqlite3
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install -r aurora-live/requirements.txt
+          python -m pip install 'websocket-client>=1.8,<2'
+
+      - name: Confirm secret is configured
+        shell: bash
+        run: |
+          test -n "$AURORA_AISSTREAM_API_KEY" || {
+            echo 'AURORA_AISSTREAM_API_KEY is not configured.'
+            exit 1
+          }
+
+      - name: Capture one live AIS observation
+        working-directory: aurora-live
+        run: |
+          python phase38_worker.py \
+            --provider maritime \
+            --database "$AURORA_TRANSPORT_DB" \
+            --max-messages 1 \
+            --timeout 45
+
+      - name: Verify durable maritime evidence
+        working-directory: aurora-live
+        run: |
+          python - <<'PY'
+          import os
+          from phase38_transport import TransportStore
+
+          store = TransportStore(os.environ['AURORA_TRANSPORT_DB'])
+          rows = store.observations(domain='maritime', provider='aisstream', limit=10)
+          providers = store.providers(domain='maritime')
+          assert rows, 'No AIS observations were durably persisted.'
+          ais = next((row for row in providers if row['provider'] == 'aisstream'), None)
+          assert ais is not None, 'AISStream provider health was not persisted.'
+          assert ais['state'] == 'ONLINE', f"AISStream provider state is {ais['state']}"
+          print(f"Qualified live AIS observations: {len(rows)}")
+          print(f"Provider state: {ais['state']}")
+          PY
