@@ -1,0 +1,99 @@
+name: Quality checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate repository content
+        shell: bash
+        run: |
+          python - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+          import json
+          import py_compile
+          import re
+          import sys
+
+          root = Path.cwd()
+          ignored = {'.git', 'node_modules', 'dist', 'build', '.venv', 'venv'}
+          errors = []
+
+          def eligible(path: Path) -> bool:
+              return not any(part in ignored for part in path.parts)
+
+          class Parser(HTMLParser):
+              pass
+
+          for path in root.rglob('*'):
+              if not path.is_file() or not eligible(path):
+                  continue
+              try:
+                  if path.suffix.lower() == '.json':
+                      json.loads(path.read_text(encoding='utf-8'))
+                  elif path.suffix.lower() in {'.html', '.htm'}:
+                      parser = Parser()
+                      parser.feed(path.read_text(encoding='utf-8'))
+                      parser.close()
+                  elif path.suffix.lower() == '.py':
+                      py_compile.compile(str(path), doraise=True)
+              except Exception as exc:
+                  errors.append(f'{path.relative_to(root)}: {exc}')
+
+          link_pattern = re.compile(r'!?\[[^\]]*\]\(([^)]+)\)')
+          for path in root.rglob('*.md'):
+              if not eligible(path):
+                  continue
+              text = path.read_text(encoding='utf-8')
+              for raw in link_pattern.findall(text):
+                  target = raw.strip().split(' "', 1)[0].strip('<>')
+                  if not target or target.startswith(('#', 'http://', 'https://', 'mailto:')):
+                      continue
+                  clean = unquote(urlsplit(target).path)
+                  candidate = (root / clean.lstrip('/')) if clean.startswith('/') else (path.parent / clean)
+                  if not candidate.exists():
+                      errors.append(f'{path.relative_to(root)}: missing local link target {target}')
+
+          if errors:
+              print('\n'.join(errors))
+              sys.exit(1)
+          print('Validated JSON, HTML parsing, Python syntax, and local Markdown links.')
+          PY
+
+      - name: Set up Node.js
+        if: ${{ hashFiles('package-lock.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Node.js dependencies
+        if: ${{ hashFiles('package-lock.json') != '' }}
+        run: npm ci
+
+      - name: Run available Node.js build
+        if: ${{ hashFiles('package-lock.json') != '' }}
+        run: npm run build --if-present
