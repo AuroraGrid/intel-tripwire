@@ -192,7 +192,7 @@ class JmaHimawariAdapter(SourceAdapter):
 class JmaAsiaAdapter(JmaHimawariAdapter):
     name = "jma-himawari-asia"
     region = "Asia"
-    area = "sase1"
+    area = "se1"
     title = "JMA Himawari-9 Southeast Asia infrared"
     geographic_scope = "Southeast Asia 1: 80E to 115E, 30N to equator"
     latitude = 15.0
