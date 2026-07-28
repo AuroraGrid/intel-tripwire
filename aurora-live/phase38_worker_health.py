@@ -12,7 +12,12 @@ def _parse(value: str) -> datetime:
 
 
 def main() -> int:
-    target = os.getenv("AURORA_TRANSPORT_DB") or os.getenv("AURORA_DATABASE_URL") or "var/aurora_transport.sqlite3"
+    target = (
+        os.getenv("AURORA_TRANSPORT_DB")
+        or os.getenv("AURORA_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+        or "var/aurora_transport.sqlite3"
+    )
     worker_name = os.getenv("AURORA_TRANSPORT_WORKER_NAME", "phase38-transport")
     max_age = max(30, int(os.getenv("AURORA_TRANSPORT_HEARTBEAT_STALE_SECONDS", "120")))
     store = TransportStore(target)
