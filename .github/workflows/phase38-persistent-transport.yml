@@ -1,0 +1,101 @@
+name: AURORA Phase 38 Persistent Transport Ingestion
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/phase38-persistent-transport.yml'
+      - 'aurora-live/phase38_transport.py'
+      - 'aurora-live/phase38_providers.py'
+      - 'aurora-live/phase38_worker.py'
+  schedule:
+    - cron: '*/10 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase38-persistent-transport
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      AURORA_AISSTREAM_API_KEY: ${{ secrets.AURORA_AISSTREAM_API_KEY }}
+      AURORA_DATABASE_URL: ${{ secrets.AURORA_DATABASE_URL || secrets.DATABASE_URL }}
+      AURORA_TRANSPORT_STALE_SECONDS: '1800'
+      AURORA_TRANSPORT_WORKER_NAME: phase38-github-scheduled
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+
+      - name: Verify production secrets
+        shell: bash
+        run: |
+          test -n "$AURORA_AISSTREAM_API_KEY" || {
+            echo 'AURORA_AISSTREAM_API_KEY is not configured.' >&2
+            exit 1
+          }
+          test -n "$AURORA_DATABASE_URL" || {
+            echo 'AURORA_DATABASE_URL or DATABASE_URL is not configured.' >&2
+            exit 1
+          }
+          echo "::add-mask::$AURORA_AISSTREAM_API_KEY"
+          echo "::add-mask::$AURORA_DATABASE_URL"
+
+      - name: Run one persistent transport cycle
+        working-directory: aurora-live
+        run: |
+          python phase38_worker.py \
+            --provider all \
+            --database "$AURORA_DATABASE_URL" \
+            --max-messages 25 \
+            --timeout 45 \
+            --worker-name "$AURORA_TRANSPORT_WORKER_NAME"
+
+      - name: Verify database-backed operational evidence
+        working-directory: aurora-live
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          from phase38_transport import TransportStore
+
+          store = TransportStore(os.environ['AURORA_DATABASE_URL'])
+          health = store.health(max_age_seconds=1800)
+          providers = {row['provider']: row for row in health['providers']}
+          aviation = providers.get('aviationweather-gov')
+          maritime = providers.get('aisstream')
+
+          assert aviation and aviation['operational'], 'aviation provider is not operational'
+          assert maritime and maritime['operational'], 'maritime provider is not operational'
+
+          summary = {
+              'qualified': True,
+              'operational_domains': health['operational_domains'],
+              'aviation_observations': aviation['observations'],
+              'maritime_observations': maritime['observations'],
+              'worker_records': len(health['workers']),
+          }
+          print(json.dumps(summary, sort_keys=True))
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as handle:
+              handle.write('## Phase 38 persistent transport\n\n')
+              handle.write(f"- Qualified: `{summary['qualified']}`\n")
+              handle.write(f"- Operational domains: `{summary['operational_domains']}`\n")
+              handle.write(f"- Aviation observations: `{summary['aviation_observations']}`\n")
+              handle.write(f"- Maritime observations: `{summary['maritime_observations']}`\n")
+              handle.write(f"- Worker records: `{summary['worker_records']}`\n")
+          PY
