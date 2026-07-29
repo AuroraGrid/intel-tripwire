@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any
 
+# Legacy filename retained for compatibility. The manifest now reflects the
+# current Phase 38 product state rather than the original Phase 32 snapshot.
 STATUSES = {"LIVE", "PARTIAL", "PLANNED", "BLOCKED", "NOT_VERIFIED"}
 PRIORITIES = {"P0", "P1", "P2", "P3"}
 
@@ -36,8 +38,24 @@ CAPABILITIES = (
     Capability("live-imagery", "media", "Live images and video", "PARTIAL", "P0", blocker="rights, provenance and availability controls incomplete"),
     Capability("video-verification", "verification", "Image and video verification", "PLANNED", "P1"),
     Capability("satellite-imagery", "sensors", "Satellite imagery layers", "PLANNED", "P1", blocker="provider adapters and licensing policy required"),
-    Capability("aviation", "transportation", "Live aircraft tracking", "PLANNED", "P0", blocker="provider selection, rate limits and attribution required"),
-    Capability("maritime", "transportation", "Live ship and maritime tracking", "PLANNED", "P0", blocker="AIS provider selection and coverage limits required"),
+    Capability(
+        "aviation",
+        "transportation",
+        "Aviation monitoring",
+        "PARTIAL",
+        "P0",
+        ("AviationWeather.gov METAR adapter", "durable provider-run telemetry", "freshness-aware health API", "SQLite/PostgreSQL persistence"),
+        blocker="current evidence covers aviation weather observations, not complete global aircraft positions; qualified production persistence and coverage validation remain required",
+    ),
+    Capability(
+        "maritime",
+        "transportation",
+        "Maritime monitoring",
+        "PARTIAL",
+        "P0",
+        ("AISStream WebSocket adapter", "durable provider-run telemetry", "freshness-aware health API", "supervised transport worker"),
+        blocker="production status requires a valid deployment secret, durable PostgreSQL persistence, freshness evidence, licensing review and disclosed coverage limitations",
+    ),
     Capability("earthquakes", "disasters", "Earthquake monitoring", "LIVE", "P0", ("USGS",)),
     Capability("volcanoes", "disasters", "Volcano monitoring", "PARTIAL", "P1", ("NASA EONET", "GDACS")),
     Capability("wildfires", "disasters", "Wildfire monitoring", "PARTIAL", "P0", ("NASA EONET",)),
@@ -77,9 +95,11 @@ def manifest() -> dict[str, Any]:
     priorities = {priority: sum(item["priority"] == priority for item in items) for priority in sorted(PRIORITIES)}
     return {
         "product": "AURORA LIVE",
-        "phase": 32,
+        "phase": 38,
         "mission": "A free global evidence and decision-intelligence operating system combining live events, media, markets, transportation, disasters, infrastructure and verified analysis.",
-        "workflow": ["SCOUT", "SOURCEGRID", "K-ALIGN", "BLACKGLASS", "CRF/IPR", "COMMAND", "AURORA GRID", "RECORD LOCK"],
+        "workflow": ["ROUTER", "SCOUT", "SOURCEGRID", "K-ALIGN", "IPR", "BLACKGLASS-I", "CRF", "COMMAND", "BLACKGLASS-II", "RECORD LOCK"],
+        "cross_system_governor": "AAIK",
+        "cognitive_control_plane": ["Luna", "Terra", "Sol"],
         "regions": ["Oceania", "Africa", "Asia", "Middle East", "Europe", "North America", "South America"],
         "interface": ["Global Operating Picture", "Incident Room", "Source Health"],
         "counts": counts,
