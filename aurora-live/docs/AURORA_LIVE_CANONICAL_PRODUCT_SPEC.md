@@ -16,7 +16,9 @@ The product is not merely a map. It must answer:
 
 ## Canonical workflow
 
-SCOUT → SOURCEGRID → K-ALIGN → BLACKGLASS → CRF/IPR → COMMAND → AURORA GRID → RECORD LOCK
+`ROUTER -> SCOUT -> SOURCEGRID -> K-ALIGN -> IPR -> BLACKGLASS-I -> CRF -> COMMAND -> BLACKGLASS-II -> RECORD LOCK`
+
+AAIK governs evidence, instability and exposure across the full workflow. Luna, Terra and Sol operate as the cognitive control plane. AURORA GRID names the complete operating system rather than an internal pipeline stage.
 
 ## Primary interfaces
 
@@ -40,17 +42,19 @@ A listed camera is not considered live merely because an embed URL exists. Avail
 
 ## Required product domains
 
-The canonical capability registry in `phase32_product_spec.py` is the machine-readable source of truth. It covers live events, replay, evidence, corrections, forecasts, webcams, live imagery, satellite layers, aviation, maritime traffic, disasters, severe weather, internet and power outages, BGP, cyber incidents, infrastructure, energy, commodities, currencies, crypto, global equities, prediction markets, elections, political risk, economic indicators, sanctions, government alerts, social and Telegram intake, watchlists, geofences, alerts, workspaces, reports, PWA access and free public deployment.
+The canonical capability registry in `phase32_product_spec.py` is the machine-readable source of truth. The filename is retained for compatibility, while its manifest reflects the current Phase 38 state. It covers live events, replay, evidence, corrections, forecasts, webcams, live imagery, satellite layers, aviation, maritime traffic, disasters, severe weather, internet and power outages, BGP, cyber incidents, infrastructure, energy, commodities, currencies, crypto, global equities, prediction markets, elections, political risk, economic indicators, sanctions, government alerts, social and Telegram intake, watchlists, geofences, alerts, workspaces, reports, PWA access and free public deployment.
+
+Phase 38 provides meaningful transportation implementation through provider adapters, durable run telemetry, freshness-aware qualification, health APIs, a supervised worker and PostgreSQL support. Aviation and maritime remain `PARTIAL`, not `LIVE`, until production persistence, coverage, freshness, licensing and completeness requirements are demonstrated.
 
 ## Status semantics
 
-- `LIVE`: implemented and represented by working code or a qualified adapter.
-- `PARTIAL`: meaningful functionality exists, but the canonical requirement is incomplete.
+- `LIVE`: implemented and represented by working, qualified code or an operational adapter with current evidence.
+- `PARTIAL`: meaningful functionality exists, but the canonical requirement or production qualification is incomplete.
 - `PLANNED`: not yet implemented as a qualified product capability.
 - `BLOCKED`: implementation is prevented by an explicit external or architectural constraint.
 - `NOT_VERIFIED`: a claim exists but lacks sufficient evidence to mark implemented.
 
-No capability may be marked `LIVE` solely because a placeholder, mock, fixture, UI label or planned endpoint exists.
+No capability may be marked `LIVE` solely because a placeholder, mock, fixture, UI label, planned endpoint, provider registration or ephemeral test exists.
 
 ## Public product APIs
 
@@ -58,13 +62,21 @@ No capability may be marked `LIVE` solely because a placeholder, mock, fixture, 
 - `GET /api/public/product/capabilities`
 - `GET /api/public/product/gaps`
 - `GET /api/public/product/gaps?priority=P0`
+- `GET /api/public/transport/coverage`
+- `GET /api/public/transport/health`
+- `GET /api/public/transport/providers`
+- `GET /api/public/transport/runs`
+- `GET /api/public/transport/workers`
+- `GET /api/public/transport/observations`
+- `GET /api/public/transport/configuration`
+- `GET /api/public/global-operating-picture`
 
 These endpoints expose the product contract and prevent the roadmap from drifting away from the original operating concept.
 
 ## Immediate P0 execution order
 
 1. Regional webcam registry and health monitor.
-2. Live aviation and maritime adapters.
+2. Production qualification and coverage expansion for aviation and maritime adapters.
 3. Severe-weather, internet-outage and BGP layers.
 4. Global equities, energy and prediction-market surfaces.
 5. Public PWA shell and no-paywall deployment controls.
@@ -73,3 +85,5 @@ These endpoints expose the product contract and prevent the roadmap from driftin
 ## Qualification boundary
 
 AURORA LIVE may aggregate third-party public data, but it must preserve provenance, licensing constraints, source health and uncertainty. It must not imply that a feed is complete, real-time or independently verified when those conditions have not been demonstrated.
+
+Provider registration is not live evidence. Transportation qualifies as operational only when a recent successful provider run produces valid observations, persists them durably, remains inside the freshness ceiling, discloses provider and coverage limitations, and satisfies licensing requirements. Aviation-weather observations do not establish complete aircraft-position coverage. AIS reception does not establish complete global vessel coverage.
