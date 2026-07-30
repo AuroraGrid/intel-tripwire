@@ -4,20 +4,24 @@ on:
   pull_request:
     paths:
       - 'aurora-live/phase38_*.py'
-      - 'aurora-live/tests/test_phase38.py'
+      - 'aurora-live/tests/test_phase38*.py'
       - 'aurora-live/release_wsgi.py'
       - 'aurora-live/requirements.txt'
       - 'aurora-live/docs/PHASE38_PROVIDER_ADAPTERS.md'
+      - 'aurora-live/docs/PHASE38_PRODUCTION_INGESTION.md'
       - '.github/workflows/phase38.yml'
+      - '.github/workflows/phase38-production-ingestion.yml'
   push:
     branches: [main]
     paths:
       - 'aurora-live/phase38_*.py'
-      - 'aurora-live/tests/test_phase38.py'
+      - 'aurora-live/tests/test_phase38*.py'
       - 'aurora-live/release_wsgi.py'
       - 'aurora-live/requirements.txt'
       - 'aurora-live/docs/PHASE38_PROVIDER_ADAPTERS.md'
+      - 'aurora-live/docs/PHASE38_PRODUCTION_INGESTION.md'
       - '.github/workflows/phase38.yml'
+      - '.github/workflows/phase38-production-ingestion.yml'
   workflow_dispatch:
 
 jobs:
@@ -35,12 +39,12 @@ jobs:
         run: python -m pip install -r aurora-live/requirements.txt
       - name: Compile transport release chain
         working-directory: aurora-live
-        run: python -m py_compile phase38_transport.py phase38_providers.py phase38_worker.py phase38_complete.py release_wsgi.py tests/test_phase38.py
+        run: python -m py_compile phase38_transport.py phase38_providers.py phase38_worker.py phase38_healthcheck.py phase38_complete.py release_wsgi.py tests/test_phase38.py tests/test_phase38_healthcheck.py
       - name: Run Phase 38 qualification
         working-directory: aurora-live
         env:
           AURORA_AISSTREAM_API_KEY: ''
-        run: python -m unittest tests.test_phase38
+        run: python -m unittest tests.test_phase38 tests.test_phase38_healthcheck
       - name: Verify worker rejects missing AIS credential safely
         working-directory: aurora-live
         env:

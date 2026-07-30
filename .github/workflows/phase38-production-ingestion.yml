@@ -1,0 +1,90 @@
+name: AURORA Phase 38 Production Transport Ingestion
+
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase38-production-transport
+  cancel-in-progress: true
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AURORA_AISSTREAM_API_KEY: ${{ secrets.AURORA_AISSTREAM_API_KEY }}
+      AURORA_DATABASE_URL: ${{ secrets.AURORA_DATABASE_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      AURORA_TRANSPORT_STALE_SECONDS: '900'
+      AURORA_AVIATION_BBOX: '-90,-180,90,180'
+      AURORA_AVIATION_HOURS: '1'
+      AURORA_AIS_MAX_MESSAGES: '50'
+      AURORA_TRANSPORT_TIMEOUT_SECONDS: '45'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve production configuration
+        id: configuration
+        shell: bash
+        run: |
+          database="${AURORA_DATABASE_URL:-${DATABASE_URL:-}}"
+          if [ -z "$database" ]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            {
+              echo '## AURORA transport production ingestion'
+              echo
+              echo '- State: **dormant**'
+              echo '- Reason: add the repository secret `AURORA_DATABASE_URL` or `DATABASE_URL` with a PostgreSQL connection string.'
+              echo '- AIS qualification remains separate and unaffected.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "$database" in
+            postgres://*|postgresql://*) ;;
+            *)
+              echo 'Production transport storage must use a PostgreSQL connection string.' >&2
+              exit 1
+              ;;
+          esac
+          if [ -z "$AURORA_AISSTREAM_API_KEY" ]; then
+            echo 'AURORA_AISSTREAM_API_KEY is not configured.' >&2
+            exit 1
+          fi
+          echo 'enabled=true' >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        if: steps.configuration.outputs.enabled == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: aurora-live/requirements.txt
+
+      - name: Install runtime dependencies
+        if: steps.configuration.outputs.enabled == 'true'
+        run: python -m pip install -r aurora-live/requirements.txt
+
+      - name: Ingest aviation and maritime observations
+        if: steps.configuration.outputs.enabled == 'true'
+        working-directory: aurora-live
+        run: |
+          python phase38_worker.py \
+            --provider all \
+            --max-messages 50 \
+            --timeout 45 \
+            --worker-name phase38-production-scheduler
+
+      - name: Enforce production freshness gate
+        if: steps.configuration.outputs.enabled == 'true'
+        working-directory: aurora-live
+        run: |
+          python phase38_healthcheck.py \
+            --max-age 900 \
+            --require aviation maritime
