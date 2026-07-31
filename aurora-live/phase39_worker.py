@@ -5,7 +5,8 @@ import json
 import os
 from pathlib import Path
 
-from phase39_infrastructure import InfrastructureCoordinator, InfrastructureStore
+from phase39_infrastructure import InfrastructureCoordinator
+from phase39_operational import OperationalInfrastructureStore
 
 
 def _target(value: str) -> str:
@@ -32,7 +33,7 @@ def main() -> int:
     parser.add_argument("--require-all", action="store_true", help="Fail unless all eight layers qualify")
     args = parser.parse_args()
 
-    store = InfrastructureStore(_target(args.database))
+    store = OperationalInfrastructureStore(_target(args.database))
     coordinator = InfrastructureCoordinator(store)
     if args.provider == "all":
         results = coordinator.run_all(timeout=max(5, min(args.timeout, 120)))
