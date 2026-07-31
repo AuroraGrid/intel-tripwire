@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import uuid
 
+from phase36_operations import regional_baseline
 from phase38_complete import Phase38Application
+from phase39_capabilities import reconciled_gaps, reconciled_manifest
 from phase39_operational import OperationalInfrastructureStore
 from phase39_secure import SecureInfrastructureCoordinator
 from platform_wsgi import HTTPError, RID_RE
@@ -21,6 +23,15 @@ class Phase39Application(Phase38Application):
         )
         self.infrastructure_store = OperationalInfrastructureStore(target)
         self.infrastructure = SecureInfrastructureCoordinator(self.infrastructure_store)
+
+    def _product_manifest(self):
+        return reconciled_manifest(
+            webcam_coverage=self.webcams.coverage(),
+            imagery_baseline=regional_baseline(self.imagery, self.operational_store),
+            unified_health=self.unified_health.snapshot(),
+            transport_health=self.transport_store.health(),
+            infrastructure_health=self.infrastructure_store.health(),
+        )
 
     def __call__(self, environ, start_response):
         path = str(environ.get("PATH_INFO") or "")
@@ -52,6 +63,29 @@ class Phase39Application(Phase38Application):
                         "freshness_basis": "recent retrieval evidence; event age is reported separately",
                         "missing_scoped_or_credentialed_feeds_remain_not_configured": True,
                     },
+                    rid,
+                )
+
+            if path in {"/.well-known/aurora-product.json", "/api/public/product/capabilities"} and method == "GET":
+                payload = self._product_manifest()
+                if path.startswith("/.well-known/"):
+                    return self._json_document(environ, start_response, payload, rid)
+                return self._response(environ, start_response, 200, payload, rid)
+
+            if path == "/api/public/product/gaps" and method == "GET":
+                query = self._query(environ)
+                return self._response(
+                    environ,
+                    start_response,
+                    200,
+                    reconciled_gaps(
+                        webcam_coverage=self.webcams.coverage(),
+                        imagery_baseline=regional_baseline(self.imagery, self.operational_store),
+                        unified_health=self.unified_health.snapshot(),
+                        transport_health=self.transport_store.health(),
+                        infrastructure_health=self.infrastructure_store.health(),
+                        priority=self._value(query, "priority", ""),
+                    ),
                     rid,
                 )
 
@@ -105,6 +139,7 @@ class Phase39Application(Phase38Application):
                 infrastructure_health = self.infrastructure_store.health()
                 payload = {
                     "phase": 39,
+                    "product": self._product_manifest(),
                     "transport_coverage": self.transport_store.coverage(),
                     "transport_health": transport_health,
                     "transport_configuration": self.transport_providers.configuration(),
