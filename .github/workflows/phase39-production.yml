@@ -1,0 +1,104 @@
+name: AURORA Phase 39 Production Infrastructure
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase39_*.py'
+      - '.github/workflows/phase39-production.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase39-production-infrastructure
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AURORA_DATABASE_URL: ${{ secrets.AURORA_DATABASE_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      AURORA_OUTAGE_FEED_URL: ${{ secrets.AURORA_OUTAGE_FEED_URL }}
+      AURORA_OUTAGE_FEED_LICENSE: ${{ vars.AURORA_OUTAGE_FEED_LICENSE }}
+      AURORA_BGP_RESOURCES: ${{ vars.AURORA_BGP_RESOURCES }}
+      AURORA_POWER_FEED_URL: ${{ secrets.AURORA_POWER_FEED_URL }}
+      AURORA_POWER_FEED_LICENSE: ${{ vars.AURORA_POWER_FEED_LICENSE }}
+      AURORA_POWER_API_KEY: ${{ secrets.AURORA_POWER_API_KEY }}
+      AURORA_INFRASTRUCTURE_STALE_SECONDS: ${{ vars.AURORA_INFRASTRUCTURE_STALE_SECONDS }}
+      AURORA_INFRASTRUCTURE_TIMEOUT_SECONDS: '45'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve activation state
+        id: gate
+        shell: bash
+        run: |
+          if [ -n "$AURORA_DATABASE_URL" ] || [ -n "$DATABASE_URL" ]; then
+            echo 'active=true' >> "$GITHUB_OUTPUT"
+            echo 'Phase 39 production ingestion is active.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'active=false' >> "$GITHUB_OUTPUT"
+            echo 'Phase 39 production ingestion is dormant: no PostgreSQL repository secret is configured.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up Python
+        if: steps.gate.outputs.active == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install runtime dependencies
+        if: steps.gate.outputs.active == 'true'
+        run: python -m pip install -r aurora-live/requirements.txt
+
+      - name: Reject ephemeral production storage
+        if: steps.gate.outputs.active == 'true'
+        shell: bash
+        run: |
+          target="${AURORA_DATABASE_URL:-$DATABASE_URL}"
+          case "$target" in
+            postgresql://*|postgres://*) ;;
+            *) echo 'Production infrastructure ingestion requires PostgreSQL.' >&2; exit 1 ;;
+          esac
+
+      - name: Run evidence-gated infrastructure ingestion
+        if: steps.gate.outputs.active == 'true'
+        working-directory: aurora-live
+        run: python phase39_worker.py > /tmp/phase39-production.json
+
+      - name: Publish sanitized operational summary
+        if: steps.gate.outputs.active == 'true'
+        working-directory: aurora-live
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/phase39-production.json').read_text())
+          coverage = payload['coverage']
+          health = payload['health']
+          lines = [
+              '## Phase 39 infrastructure ingestion',
+              '',
+              f"Qualified layers: {coverage['qualified_layers']}/8",
+              f"Fully qualified: {coverage['fully_qualified']}",
+              '',
+              '### Layer state',
+          ]
+          for layer in health['layers']:
+              lines.append(f"- {layer['layer']}: {'OPERATIONAL' if layer['operational'] else 'NOT QUALIFIED'}")
+          lines.extend(['', '### Provider state'])
+          for provider in health['providers']:
+              lines.append(
+                  f"- {provider['provider']} ({provider['layer']}): {provider['state']}; "
+                  f"retrieval_fresh={provider['retrieval_fresh']}; operational={provider['operational']}"
+              )
+          Path(__import__('os').environ['GITHUB_STEP_SUMMARY']).write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
