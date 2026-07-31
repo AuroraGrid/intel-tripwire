@@ -10,8 +10,21 @@ from phase39_infrastructure import InfrastructureStore, LAYERS, _now, _parse_tim
 class OperationalInfrastructureStore(InfrastructureStore):
     """Qualification uses fresh retrieval evidence while retaining event-age telemetry."""
 
+    def _initialize(self) -> None:
+        if not getattr(self, "postgres", False):
+            super()._initialize()
+            return
+        cursor = self._connection.cursor()
+        cursor.execute("SELECT pg_advisory_lock(%s)", (390039,))
+        try:
+            super()._initialize()
+        finally:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", (390039,))
+            self._connection.commit()
+
     def health(self, max_age_seconds: int | None = None) -> dict[str, Any]:
-        maximum_age = max(60, int(max_age_seconds or os.getenv("AURORA_INFRASTRUCTURE_STALE_SECONDS", "3600")))
+        configured_age = os.getenv("AURORA_INFRASTRUCTURE_STALE_SECONDS") or "3600"
+        maximum_age = max(60, int(max_age_seconds or configured_age))
         now = datetime.now(timezone.utc)
         provider_health: list[dict[str, Any]] = []
         for provider in self.providers():
