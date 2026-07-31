@@ -40,6 +40,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+
       - name: Compile backend
         run: python -m py_compile aurora-live/app.py
 
