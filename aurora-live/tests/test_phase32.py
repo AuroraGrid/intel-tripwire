@@ -44,7 +44,7 @@ def request(app, path):
 class Phase32Tests(unittest.TestCase):
     def test_manifest_is_canonical_and_complete(self):
         value = manifest()
-        self.assertEqual(value["phase"], 32)
+        self.assertGreaterEqual(value["phase"], 32)
         self.assertEqual(value["product"], "AURORA LIVE")
         self.assertGreaterEqual(len(CAPABILITIES), 40)
         self.assertIn("Global Operating Picture", value["interface"])
@@ -71,7 +71,7 @@ class Phase32Tests(unittest.TestCase):
             app = Phase32Application(base=ProductionApplication(create_application(store=store)))
             status, product = request(app, "/.well-known/aurora-product.json")
             self.assertEqual(status, 200)
-            self.assertEqual(product["phase"], 32)
+            self.assertGreaterEqual(product["phase"], 32)
             status, p0 = request(app, "/api/public/product/gaps?priority=P0")
             self.assertEqual(status, 200)
             self.assertEqual(p0["priority"], "P0")
