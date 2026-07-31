@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - 'aurora-live/phase39_*.py'
+      - 'aurora-live/live_qualification.py'
       - 'aurora-live/tests/test_phase39*.py'
+      - 'aurora-live/tests/test_live_qualification.py'
       - 'aurora-live/tests/test_phase32.py'
       - 'aurora-live/release_wsgi.py'
       - 'aurora-live/requirements.txt'
@@ -14,7 +16,9 @@ on:
     branches: [main]
     paths:
       - 'aurora-live/phase39_*.py'
+      - 'aurora-live/live_qualification.py'
       - 'aurora-live/tests/test_phase39*.py'
+      - 'aurora-live/tests/test_live_qualification.py'
       - 'aurora-live/tests/test_phase32.py'
       - 'aurora-live/release_wsgi.py'
       - 'aurora-live/requirements.txt'
@@ -40,7 +44,7 @@ jobs:
         run: python -m pip install -r aurora-live/requirements.txt
       - name: Compile Phase 39 release chain
         working-directory: aurora-live
-        run: python -m py_compile phase39_infrastructure.py phase39_operational.py phase39_secure.py phase39_capabilities.py phase39_worker.py phase39_complete.py release_wsgi.py tests/test_phase39.py tests/test_phase39_operational.py tests/test_phase39_secure.py tests/test_phase39_capabilities.py tests/test_phase39_postgres.py tests/test_phase32.py
+        run: python -m py_compile live_qualification.py phase39_infrastructure.py phase39_operational.py phase39_secure.py phase39_capabilities.py phase39_worker.py phase39_complete.py release_wsgi.py tests/test_live_qualification.py tests/test_phase39.py tests/test_phase39_operational.py tests/test_phase39_secure.py tests/test_phase39_capabilities.py tests/test_phase39_postgres.py tests/test_phase32.py
       - name: Run deterministic Phase 39 qualification
         working-directory: aurora-live
         env:
@@ -48,7 +52,7 @@ jobs:
           AURORA_BGP_RESOURCES: ''
           AURORA_POWER_FEED_URL: ''
           AURORA_POWER_API_KEY: ''
-        run: python -m unittest tests.test_phase39 tests.test_phase39_operational tests.test_phase39_secure tests.test_phase39_capabilities tests.test_phase32
+        run: python -m unittest tests.test_live_qualification tests.test_phase39 tests.test_phase39_operational tests.test_phase39_secure tests.test_phase39_capabilities tests.test_phase32
       - name: Verify release compatibility
         working-directory: aurora-live
         run: python -c "import release_wsgi; from phase39_complete import Phase39Application; assert isinstance(release_wsgi.application, Phase39Application); assert release_wsgi.application._product_manifest()['phase'] == 39"
