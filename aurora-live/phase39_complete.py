@@ -4,8 +4,8 @@ import os
 import uuid
 
 from phase38_complete import Phase38Application
-from phase39_infrastructure import InfrastructureCoordinator
 from phase39_operational import OperationalInfrastructureStore
+from phase39_secure import SecureInfrastructureCoordinator
 from platform_wsgi import HTTPError, RID_RE
 
 
@@ -20,7 +20,7 @@ class Phase39Application(Phase38Application):
             or ":memory:"
         )
         self.infrastructure_store = OperationalInfrastructureStore(target)
-        self.infrastructure = InfrastructureCoordinator(self.infrastructure_store)
+        self.infrastructure = SecureInfrastructureCoordinator(self.infrastructure_store)
 
     def __call__(self, environ, start_response):
         path = str(environ.get("PATH_INFO") or "")
