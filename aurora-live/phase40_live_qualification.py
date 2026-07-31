@@ -5,7 +5,8 @@ import json
 import time
 from pathlib import Path
 
-from phase40_markets import MarketCoordinator, MarketStore
+from phase40_markets import MarketStore
+from phase40_repairs import ProductionMarketCoordinator
 
 KEYLESS_PROVIDERS = (
     "world-bank-pink-sheet",
@@ -18,7 +19,7 @@ KEYLESS_PROVIDERS = (
 
 def qualify(database: str, *, retries: int = 2, timeout: int = 45) -> dict:
     store = MarketStore(database)
-    coordinator = MarketCoordinator(store)
+    coordinator = ProductionMarketCoordinator(store)
     results = []
     for provider in KEYLESS_PROVIDERS:
         result = None
@@ -33,7 +34,7 @@ def qualify(database: str, *, retries: int = 2, timeout: int = 45) -> dict:
         results.append({"provider": provider, "passed": bool(result and result.successful), "attempts": attempts})
     passed = all(row["passed"] for row in results)
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "passed": passed,
         "required_providers": list(KEYLESS_PROVIDERS),
         "passed_providers": [row["provider"] for row in results if row["passed"]],
