@@ -6,7 +6,8 @@ import uuid
 from phase36_operations import regional_baseline
 from phase39_complete import Phase39Application
 from phase40_capabilities import reconciled_gaps, reconciled_manifest
-from phase40_markets import MarketCoordinator, MarketStore
+from phase40_markets import MarketStore
+from phase40_repairs import ProductionMarketCoordinator
 from platform_wsgi import HTTPError, RID_RE
 
 
@@ -21,7 +22,7 @@ class Phase40Application(Phase39Application):
             or ":memory:"
         )
         self.market_store = MarketStore(target)
-        self.markets = MarketCoordinator(self.market_store)
+        self.markets = ProductionMarketCoordinator(self.market_store)
 
     def _product_manifest(self):
         return reconciled_manifest(
