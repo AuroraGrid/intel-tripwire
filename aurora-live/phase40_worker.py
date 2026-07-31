@@ -5,7 +5,8 @@ import json
 import os
 from pathlib import Path
 
-from phase40_markets import MarketCoordinator, MarketStore
+from phase40_markets import MarketStore
+from phase40_repairs import ProductionMarketCoordinator
 
 
 def _target(value: str) -> str:
@@ -33,7 +34,7 @@ def main() -> int:
     args = parser.parse_args()
 
     store = MarketStore(_target(args.database))
-    coordinator = MarketCoordinator(store)
+    coordinator = ProductionMarketCoordinator(store)
     if args.provider == "all":
         results = coordinator.run_all(timeout=max(5, min(args.timeout, 120)))
     else:
