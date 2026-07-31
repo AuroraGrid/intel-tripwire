@@ -55,7 +55,7 @@ jobs:
         run: python -m unittest tests.test_live_qualification tests.test_phase39 tests.test_phase39_operational tests.test_phase39_secure tests.test_phase39_capabilities tests.test_phase32
       - name: Verify release compatibility
         working-directory: aurora-live
-        run: python -c "import release_wsgi; from phase39_complete import Phase39Application; assert isinstance(release_wsgi.application, Phase39Application); assert release_wsgi.application._product_manifest()['phase'] == 39"
+        run: python -c "import release_wsgi; from phase39_complete import Phase39Application; assert isinstance(release_wsgi.application, Phase39Application); assert release_wsgi.application._product_manifest()['phase'] >= 39"
 
   postgres:
     runs-on: ubuntu-latest

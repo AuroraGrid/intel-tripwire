@@ -1,0 +1,69 @@
+name: AURORA Phase 40 Live Markets
+
+on:
+  pull_request:
+    paths:
+      - 'aurora-live/phase40_*.py'
+      - 'aurora-live/requirements.txt'
+      - '.github/workflows/phase40-live.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase40_*.py'
+      - 'aurora-live/requirements.txt'
+      - '.github/workflows/phase40-live.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keyless-provider-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+      - name: Qualify documented keyless market providers
+        working-directory: aurora-live
+        env:
+          AURORA_ALPHA_VANTAGE_API_KEY: ''
+          AURORA_EIA_API_KEY: ''
+          AURORA_COMMODITY_SERIES: 'CRUDE_BRENT,GOLD,COPPER'
+          AURORA_ECB_CURRENCIES: 'USD,GBP,JPY'
+          AURORA_COINBASE_PRODUCTS: 'BTC-USD,ETH-USD'
+          AURORA_WORLD_BANK_COUNTRIES: 'USA,CHN,IND'
+          AURORA_WORLD_BANK_INDICATORS: 'NY.GDP.MKTP.CD,FP.CPI.TOTL.ZG'
+          AURORA_KALSHI_MARKET_LIMIT: '100'
+        run: python phase40_live_qualification.py --retries 2 --timeout 45
+      - name: Summarize live qualification
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path('/tmp/aurora-phase40-live.json')
+          lines = ['## Phase 40 live market qualification', '']
+          if not path.exists():
+              lines.append('No qualification report was produced.')
+          else:
+              data = json.loads(path.read_text())
+              lines.append(f"Passed: {data['passed']}")
+              lines.append(f"Passed providers: {', '.join(data['passed_providers']) or 'none'}")
+              lines.append(f"Failed providers: {', '.join(data['failed_providers']) or 'none'}")
+              lines.append('Credentialed equities and energy domains remain separate and are not implied by this proof.')
+          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
+      - name: Upload sanitized qualification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase40-live-markets
+          path: /tmp/aurora-phase40-live.json
+          if-no-files-found: ignore
+          retention-days: 7
