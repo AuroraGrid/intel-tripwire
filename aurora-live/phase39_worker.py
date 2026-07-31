@@ -5,8 +5,8 @@ import json
 import os
 from pathlib import Path
 
-from phase39_infrastructure import InfrastructureCoordinator
 from phase39_operational import OperationalInfrastructureStore
+from phase39_secure import SecureInfrastructureCoordinator
 
 
 def _target(value: str) -> str:
@@ -34,7 +34,7 @@ def main() -> int:
     args = parser.parse_args()
 
     store = OperationalInfrastructureStore(_target(args.database))
-    coordinator = InfrastructureCoordinator(store)
+    coordinator = SecureInfrastructureCoordinator(store)
     if args.provider == "all":
         results = coordinator.run_all(timeout=max(5, min(args.timeout, 120)))
     else:
