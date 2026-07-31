@@ -1,0 +1,81 @@
+name: AURORA Phase 39 Infrastructure Risk
+
+on:
+  pull_request:
+    paths:
+      - 'aurora-live/phase39_*.py'
+      - 'aurora-live/tests/test_phase39*.py'
+      - 'aurora-live/release_wsgi.py'
+      - 'aurora-live/requirements.txt'
+      - 'aurora-live/docs/PHASE39_INFRASTRUCTURE_RISK.md'
+      - '.github/workflows/phase39.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase39_*.py'
+      - 'aurora-live/tests/test_phase39*.py'
+      - 'aurora-live/release_wsgi.py'
+      - 'aurora-live/requirements.txt'
+      - 'aurora-live/docs/PHASE39_INFRASTRUCTURE_RISK.md'
+      - '.github/workflows/phase39.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile Phase 39 release chain
+        working-directory: aurora-live
+        run: python -m py_compile phase39_infrastructure.py phase39_operational.py phase39_worker.py phase39_complete.py release_wsgi.py tests/test_phase39.py tests/test_phase39_operational.py tests/test_phase39_postgres.py
+      - name: Run deterministic Phase 39 qualification
+        working-directory: aurora-live
+        env:
+          AURORA_OUTAGE_FEED_URL: ''
+          AURORA_BGP_RESOURCES: ''
+          AURORA_POWER_FEED_URL: ''
+          AURORA_POWER_API_KEY: ''
+        run: python -m unittest tests.test_phase39 tests.test_phase39_operational
+      - name: Verify release compatibility
+        working-directory: aurora-live
+        run: python -c "import release_wsgi; from phase39_complete import Phase39Application; assert isinstance(release_wsgi.application, Phase39Application)"
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: aurora_phase39
+          POSTGRES_USER: aurora
+          POSTGRES_PASSWORD: aurora-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aurora -d aurora_phase39"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+      - name: Qualify PostgreSQL durability
+        working-directory: aurora-live
+        env:
+          AURORA_TEST_POSTGRES_URL: postgresql://aurora:aurora-test@127.0.0.1:5432/aurora_phase39
+        run: python -m unittest tests.test_phase39_postgres
