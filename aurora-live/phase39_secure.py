@@ -49,7 +49,10 @@ class SecureConfiguredJSONAdapter:
         if not self.configured():
             raise RuntimeError(f"{self.url_env} is not configured")
         request_url = template.replace("{api_key}", urllib.parse.quote(key, safe="")) if "{api_key}" in template else template
-        data = _json(request_url, timeout=timeout)
+        try:
+            data = _json(request_url, timeout=timeout)
+        except Exception as exc:
+            raise RuntimeError(f"{self.name} request failed") from exc
         rows = data if isinstance(data, list) else (data.get("events") or data.get("outages") or data.get("data") or data.get("items") or [])
         observed_at = _now()
         output: list[InfrastructureObservation] = []
