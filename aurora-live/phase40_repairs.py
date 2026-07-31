@@ -47,6 +47,25 @@ def _date_like(value: Any) -> datetime | None:
     return None
 
 
+def _is_unit_label(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return any(
+        marker in text
+        for marker in (
+            "$",
+            "usd",
+            " per ",
+            "/bbl",
+            "/mt",
+            "/kg",
+            "/toz",
+            "mmbtu",
+            "cents",
+            "2010=100",
+        )
+    )
+
+
 class ResilientWorldBankCommoditiesAdapter(WorldBankCommoditiesAdapter):
     """Parse current and legacy Pink Sheet workbooks with offset, multi-row headers."""
 
@@ -76,11 +95,38 @@ class ResilientWorldBankCommoditiesAdapter(WorldBankCommoditiesAdapter):
                     return True
         return False
 
-    @staticmethod
-    def _instrument(labels: list[str], index: int) -> str:
-        normalized = [_normalized(label) for label in labels if _normalized(label)]
-        code_like = [label for label in normalized if re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", label)]
-        return (code_like[-1] if code_like else (normalized[0] if normalized else f"SERIES_{index}"))[:160]
+    @classmethod
+    def _instrument(cls, labels: list[str], index: int) -> str:
+        candidates: list[tuple[str, str]] = []
+        for original in labels:
+            normalized = _normalized(original)
+            if not normalized or _is_unit_label(original):
+                continue
+            candidates.append((str(original).strip(), normalized))
+
+        alias_codes = {code for values in cls.aliases.values() for code in values}
+        exact_native = [normalized for _original, normalized in candidates if normalized in alias_codes]
+        if exact_native:
+            return exact_native[-1][:160]
+
+        underscored = [
+            normalized
+            for original, normalized in candidates
+            if "_" in original and re.fullmatch(r"[A-Z0-9_]{3,}", normalized)
+        ]
+        if underscored:
+            return underscored[-1][:160]
+
+        code_like = [
+            normalized
+            for _original, normalized in candidates
+            if "_" in normalized and re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", normalized)
+        ]
+        if code_like:
+            return code_like[-1][:160]
+
+        descriptive = [normalized for _original, normalized in candidates]
+        return (max(descriptive, key=len) if descriptive else f"SERIES_{index}")[:160]
 
     def fetch(self, timeout: int = 45) -> list[MarketObservation]:
         try:
@@ -161,14 +207,7 @@ class ResilientWorldBankCommoditiesAdapter(WorldBankCommoditiesAdapter):
             if not self._matches(selected, labels):
                 continue
             instrument = self._instrument(labels, column_index)
-            unit = next(
-                (
-                    label
-                    for label in labels
-                    if any(marker in label.lower() for marker in ("$", "usd", "ton", "bbl", "kg", "mmbtu", "toz", "cents"))
-                ),
-                "published unit",
-            )
+            unit = next((label for label in labels if _is_unit_label(label)), "published unit")
             output.append(
                 MarketObservation(
                     self.domain,
