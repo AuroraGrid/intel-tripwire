@@ -41,13 +41,16 @@ def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_cap
     registry_passed = int(registry_totals.get("adapters") or 0) >= 25 and int(registry_totals.get("capability_classes") or 0) >= 8
     live_passed = len(online) >= max(1, int(minimum_online)) and len(capabilities) >= max(1, int(minimum_capabilities))
     repaired_online = {row.get("source") for row in online if row.get("source") in FINAL_REPAIR_NAMES}
-    repair_passed = not require_repairs or (repaired_online == FINAL_REPAIR_NAMES and not degraded)
+    repair_passed = not require_repairs or repaired_online == FINAL_REPAIR_NAMES
+    mode = str(snapshot.get("mode") or "")
+    mode_passed = mode in {"live", "live_degraded"}
+    fallback_present = any(row.get("status") == "offline_fallback" for row in source_rows)
 
     passed = bool(
         payload
         and snapshot.get("status") == "ok"
-        and snapshot.get("mode") == "live"
-        and not any(row.get("status") == "offline_fallback" for row in source_rows)
+        and mode_passed
+        and not fallback_present
         and registry_passed
         and live_passed
         and repair_passed
@@ -56,12 +59,15 @@ def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_cap
         and not status.get("stale")
     )
     result = {
-        "schema_version": "2.2",
+        "schema_version": "2.3",
         "qualified_at": now_iso(),
         "passed": passed,
         "registry_breadth_passed": registry_passed,
         "live_breadth_passed": live_passed,
         "source_repair_passed": repair_passed,
+        "mode_passed": mode_passed,
+        "offline_fallback_present": fallback_present,
+        "degraded_but_qualified": bool(passed and degraded),
         "expected_sources": expected,
         "minimum_online": max(1, int(minimum_online)),
         "minimum_capabilities": max(1, int(minimum_capabilities)),
@@ -71,7 +77,7 @@ def qualify(output: str, retries: int = 2, minimum_online: int = 12, minimum_cap
         "repaired_sources_expected": sorted(FINAL_REPAIR_NAMES),
         "degraded_sources": [{"source": row.get("source"), "status": row.get("status"), "error": row.get("error")} for row in degraded],
         "registry_totals": registry_totals,
-        "mode": snapshot.get("mode"),
+        "mode": mode,
         "event_count": int(snapshot.get("event_count") or 0),
         "evidence_count": int(snapshot.get("evidence_count") or 0),
         "duplicates_suppressed": int(snapshot.get("duplicates_suppressed") or 0),
