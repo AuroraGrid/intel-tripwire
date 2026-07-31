@@ -4,7 +4,8 @@ import os
 import uuid
 
 from phase38_complete import Phase38Application
-from phase39_infrastructure import InfrastructureCoordinator, InfrastructureStore
+from phase39_infrastructure import InfrastructureCoordinator
+from phase39_operational import OperationalInfrastructureStore
 from platform_wsgi import HTTPError, RID_RE
 
 
@@ -18,7 +19,7 @@ class Phase39Application(Phase38Application):
             or os.getenv("DATABASE_URL")
             or ":memory:"
         )
-        self.infrastructure_store = InfrastructureStore(target)
+        self.infrastructure_store = OperationalInfrastructureStore(target)
         self.infrastructure = InfrastructureCoordinator(self.infrastructure_store)
 
     def __call__(self, environ, start_response):
@@ -48,6 +49,7 @@ class Phase39Application(Phase38Application):
                         "registration_is_not_live_evidence": True,
                         "configured_is_not_operational": True,
                         "qualification_requires_fresh_durable_observations": True,
+                        "freshness_basis": "recent retrieval evidence; event age is reported separately",
                         "missing_scoped_or_credentialed_feeds_remain_not_configured": True,
                     },
                     rid,
