@@ -131,7 +131,7 @@ class Phase39Tests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             store = InfrastructureStore(":memory:")
             coordinator = InfrastructureCoordinator(store)
-            result = coordinator.run("configured-official-outage-feed")
+            result = coordinator.run("eia-electricity-rto")
         self.assertFalse(result.configured)
         self.assertFalse(result.successful)
         provider = next(row for row in store.providers() if row["provider"] == result.provider)

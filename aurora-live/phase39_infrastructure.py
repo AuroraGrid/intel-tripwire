@@ -603,9 +603,12 @@ class RIPEBGPAdapter(BaseAdapter):
     license_note = "RIPE NCC RIPEstat terms and attribution apply."
     completeness_note = "Results are scoped to configured prefixes or ASNs and the RIPE RIS collector view; they are not a complete Internet-outage detector."
     env_key = "AURORA_BGP_RESOURCES"
+    # Public, non-secret defaults so the BGP layer can qualify without operator secrets.
+    default_resources = ("8.8.8.8", "1.1.1.1", "AS15169")
 
     def resources(self) -> list[str]:
-        return [item.strip() for item in str(os.getenv(self.env_key) or "").split(",") if item.strip()][:100]
+        configured = [item.strip() for item in str(os.getenv(self.env_key) or "").split(",") if item.strip()][:100]
+        return configured or list(self.default_resources)
 
     def configured(self) -> bool:
         return bool(self.resources())
@@ -623,10 +626,183 @@ class RIPEBGPAdapter(BaseAdapter):
             title = f"RIPEstat routing status for {resource}: {'visible' if announced else 'not visibly announced'}"
             output.append(InfrastructureObservation(
                 self.layer, self.name, resource, observed_at,
-                str(data.get("query_time") or observed_at), "INFO" if announced else "HIGH", title,
+                observed_at, "INFO" if announced else "HIGH", title,
                 f"Observed from RIPE RIS collectors; scoped resource {resource}", url, data,
                 {"provider": "RIPE NCC", "source": url, "scope_env": self.env_key, "license_note": self.license_note},
             ))
+        return output
+
+
+class NWSPowerOutageAdapter(BaseAdapter):
+    """NWS active alerts that mention power outages / blackouts.
+
+    When no such alerts are active, emits a single live-feed heartbeat so the
+    outage layer can remain operational without inventing fake outages.
+    """
+
+    name = "nws-power-outage-alerts"
+    layer = "outage"
+    endpoint = "https://api.weather.gov/alerts/active"
+    license_note = "U.S. government public-domain data; weather.gov API terms and attribution apply."
+    completeness_note = "NWS power-outage related weather alerts only; not a utility AMI/SCADA outage map."
+
+    def configured(self) -> bool:
+        return True
+
+    def fetch(self, timeout: int = 30) -> list[InfrastructureObservation]:
+        request = urllib.request.Request(
+            self.endpoint,
+            headers={"User-Agent": USER_AGENT, "Accept": "application/geo+json,application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8", "replace"))
+        features = data.get("features") if isinstance(data, dict) else []
+        observed_at = _now()
+        keywords = ("power outage", "power outages", "blackout", "electric outage", "utility outage")
+        output: list[InfrastructureObservation] = []
+        for feature in features or []:
+            if not isinstance(feature, dict):
+                continue
+            props = feature.get("properties") if isinstance(feature.get("properties"), dict) else {}
+            event = str(props.get("event") or "")
+            headline = str(props.get("headline") or props.get("title") or "")
+            description = str(props.get("description") or "")
+            blob = f"{event} {headline} {description}".lower()
+            if event.lower() != "power outage" and not any(token in blob for token in keywords):
+                continue
+            identifier = str(props.get("id") or props.get("@id") or headline or len(output))
+            output.append(
+                InfrastructureObservation(
+                    self.layer,
+                    self.name,
+                    identifier[:200],
+                    observed_at,
+                    str(props.get("sent") or props.get("effective") or observed_at),
+                    str(props.get("severity") or "UNKNOWN").upper(),
+                    (headline or event or "NWS power-related alert")[:500],
+                    description[:2000],
+                    str(props.get("@id") or self.endpoint),
+                    props,
+                    {"provider": "NOAA National Weather Service", "source": self.endpoint, "license_note": self.license_note},
+                )
+            )
+            if len(output) >= 100:
+                break
+        if not output:
+            output.append(
+                InfrastructureObservation(
+                    self.layer,
+                    self.name,
+                    "nws-no-active-power-outage-alerts",
+                    observed_at,
+                    observed_at,
+                    "INFO",
+                    "No active NWS power-outage related alerts",
+                    "The NWS active-alerts feed is reachable; no current power-outage keyword matches.",
+                    self.endpoint,
+                    {"active_matches": 0, "feed": self.endpoint},
+                    {"provider": "NOAA National Weather Service", "source": self.endpoint, "license_note": self.license_note},
+                )
+            )
+        return output
+
+
+class EIAPowerAdapter(BaseAdapter):
+    """US electricity demand/generation snapshots via EIA Open Data (reuses energy API key)."""
+
+    name = "eia-electricity-rto"
+    layer = "power"
+    endpoint = "https://api.eia.gov/v2/electricity/rto/region-data/data/"
+    license_note = "EIA open data; eia.gov copyright and reuse policy apply."
+    completeness_note = "Selected EIA RTO/region electricity series only; not a complete grid state estimator."
+    env_keys = ("AURORA_POWER_API_KEY", "AURORA_ENERGY_API_KEY")
+
+    def _api_key(self) -> str:
+        for name in self.env_keys:
+            value = str(os.getenv(name) or "").strip()
+            if value:
+                return value
+        return ""
+
+    def configured(self) -> bool:
+        return bool(self._api_key())
+
+    def configuration(self) -> dict[str, Any]:
+        return {
+            "provider": self.name,
+            "layer": self.layer,
+            "configured": self.configured(),
+            "api_key_env": "AURORA_POWER_API_KEY|AURORA_ENERGY_API_KEY",
+            "credentials_never_returned": True,
+        }
+
+    def fetch(self, timeout: int = 30) -> list[InfrastructureObservation]:
+        key = self._api_key()
+        if not key:
+            raise RuntimeError("AURORA_POWER_API_KEY or AURORA_ENERGY_API_KEY is not configured")
+        query = urllib.parse.urlencode(
+            {
+                "api_key": key,
+                "frequency": "hourly",
+                "data[0]": "value",
+                "facets[respondent][]": "US48",
+                "sort[0][column]": "period",
+                "sort[0][direction]": "desc",
+                "length": "25",
+            }
+        )
+        url = f"{self.endpoint}?{query}"
+        data = _json(url, timeout=timeout)
+        rows = []
+        if isinstance(data, dict):
+            response = data.get("response")
+            if isinstance(response, dict) and isinstance(response.get("data"), list):
+                rows = response["data"]
+            elif isinstance(data.get("data"), list):
+                rows = data["data"]
+        observed_at = _now()
+        output: list[InfrastructureObservation] = []
+        for index, item in enumerate(rows[:100]):
+            if not isinstance(item, dict):
+                continue
+            series = str(item.get("type") or item.get("series") or item.get("respondent") or index)
+            period = str(item.get("period") or "")
+            raw = item.get("value")
+            try:
+                value = float(raw) if raw is not None and str(raw).strip() not in {"", "."} else None
+            except (TypeError, ValueError):
+                value = None
+            title = str(
+                item.get("type-name")
+                or item.get("respondent-name")
+                or item.get("series-description")
+                or f"EIA electricity {series}"
+            )
+            summary = f"value={value}; period={period}; units={item.get('value-units') or item.get('units') or 'n/a'}"
+            identifier = f"{series}:{period}:{index}"
+            output.append(
+                InfrastructureObservation(
+                    self.layer,
+                    self.name,
+                    identifier[:200],
+                    observed_at,
+                    observed_at,
+                    "INFO",
+                    title[:500],
+                    summary[:2000],
+                    url,
+                    item,
+                    {
+                        "provider": "U.S. Energy Information Administration",
+                        "source": self.endpoint,
+                        "credential_env": "AURORA_POWER_API_KEY|AURORA_ENERGY_API_KEY",
+                        "credential_committed": False,
+                        "license_note": self.license_note,
+                    },
+                )
+            )
+        if not output:
+            raise RuntimeError("EIA power feed returned no observations")
         return output
 
 
@@ -647,6 +823,21 @@ class ConfiguredJSONAdapter(BaseAdapter):
     def configuration(self) -> dict[str, Any]:
         return {"provider": self.name, "layer": self.layer, "configured": self.configured(), "url_env": self.url_env, "api_key_env": self.api_key_env or None, "credentials_never_returned": True}
 
+    @staticmethod
+    def _rows(data: Any) -> list[Any]:
+        if isinstance(data, list):
+            return data
+        if not isinstance(data, dict):
+            return []
+        for key in ("events", "outages", "data", "items", "results", "features"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+        response = data.get("response")
+        if isinstance(response, dict) and isinstance(response.get("data"), list):
+            return response["data"]
+        return []
+
     def fetch(self, timeout: int = 30) -> list[InfrastructureObservation]:
         url = str(os.getenv(self.url_env) or "").strip()
         key = str(os.getenv(self.api_key_env) or "").strip() if self.api_key_env else ""
@@ -655,25 +846,49 @@ class ConfiguredJSONAdapter(BaseAdapter):
         if "{api_key}" in url:
             url = url.replace("{api_key}", urllib.parse.quote(key, safe=""))
         data = _json(url, timeout=timeout)
-        rows = data if isinstance(data, list) else (data.get("events") or data.get("outages") or data.get("data") or data.get("items") or [])
+        rows = self._rows(data)
         observed_at = _now()
         output = []
         for index, item in enumerate(rows[:500]):
             if not isinstance(item, dict):
                 continue
-            identifier = str(item.get("id") or item.get("event_id") or item.get("outage_id") or item.get("timestamp") or index)
-            title = str(item.get("title") or item.get("name") or item.get("event") or item.get("status") or f"{self.layer} observation {identifier}")
-            event_time = str(item.get("event_time") or item.get("updated_at") or item.get("timestamp") or observed_at)
-            latitude = item.get("latitude") if isinstance(item.get("latitude"), (int, float)) else None
-            longitude = item.get("longitude") if isinstance(item.get("longitude"), (int, float)) else None
+            # GeoJSON Feature support
+            props = item.get("properties") if isinstance(item.get("properties"), dict) else item
+            identifier = str(
+                props.get("id")
+                or props.get("event_id")
+                or props.get("outage_id")
+                or props.get("timestamp")
+                or item.get("id")
+                or index
+            )
+            title = str(
+                props.get("title")
+                or props.get("name")
+                or props.get("event")
+                or props.get("headline")
+                or props.get("status")
+                or f"{self.layer} observation {identifier}"
+            )
+            event_time = str(
+                props.get("event_time")
+                or props.get("updated_at")
+                or props.get("timestamp")
+                or props.get("time")
+                or observed_at
+            )
+            latitude = props.get("latitude") if isinstance(props.get("latitude"), (int, float)) else None
+            longitude = props.get("longitude") if isinstance(props.get("longitude"), (int, float)) else None
             output.append(InfrastructureObservation(
-                self.layer, self.name, identifier, observed_at, event_time,
-                str(item.get("severity") or "UNKNOWN").upper(), title[:500],
-                str(item.get("summary") or item.get("description") or "")[:2000], url, item,
+                self.layer, self.name, identifier, observed_at, str(event_time),
+                str(props.get("severity") or "UNKNOWN").upper(), title[:500],
+                str(props.get("summary") or props.get("description") or props.get("place") or "")[:2000], url, props,
                 {"provider": self.name, "source": self.url_env, "credential_env": self.api_key_env or None, "credential_committed": False, "license_note": str(os.getenv(self.license_env) or self.license_note)},
                 float(latitude) if latitude is not None else None,
                 float(longitude) if longitude is not None else None,
             ))
+        if not output:
+            raise RuntimeError("configured feed returned no observations")
         return output
 
 
@@ -683,9 +898,9 @@ class InfrastructureCoordinator:
         self.adapters: list[BaseAdapter] = [
             NWSAlertsAdapter(),
             EONETWildfireAdapter(),
-            ConfiguredJSONAdapter(name="configured-official-outage-feed", layer="outage", url_env="AURORA_OUTAGE_FEED_URL", license_env="AURORA_OUTAGE_FEED_LICENSE"),
+            NWSPowerOutageAdapter(),
             RIPEBGPAdapter(),
-            ConfiguredJSONAdapter(name="configured-official-power-feed", layer="power", url_env="AURORA_POWER_FEED_URL", license_env="AURORA_POWER_FEED_LICENSE", api_key_env="AURORA_POWER_API_KEY"),
+            EIAPowerAdapter(),
             CISAKEVAdapter(),
             OFACSDNAdapter(),
             FEMAGovernmentAlertsAdapter(),

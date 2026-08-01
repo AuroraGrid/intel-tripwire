@@ -35,7 +35,7 @@ class Phase39CapabilityTests(unittest.TestCase):
         infrastructure = {
             "providers": [
                 provider("nws-active-alerts", layer="severe_weather", operational=True, state="ONLINE", observations=20),
-                provider("configured-official-outage-feed", layer="outage", operational=False, state="NOT_CONFIGURED"),
+                provider("nws-power-outage-alerts", layer="outage", operational=False, state="NOT_CONFIGURED"),
             ],
             "operational_layers": 1,
             "fully_operational": False,
