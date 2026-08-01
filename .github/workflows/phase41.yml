@@ -1,0 +1,42 @@
+name: AURORA Phase 41 Replay Media
+
+on:
+  pull_request:
+    paths:
+      - 'aurora-live/phase41_*.py'
+      - 'aurora-live/release_wsgi.py'
+      - 'aurora-live/tests/test_phase41*.py'
+      - 'aurora-live/docs/PHASE41_REPLAY_MEDIA.md'
+      - '.github/workflows/phase41.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase41_*.py'
+      - 'aurora-live/release_wsgi.py'
+      - 'aurora-live/tests/test_phase41*.py'
+      - 'aurora-live/docs/PHASE41_REPLAY_MEDIA.md'
+      - '.github/workflows/phase41.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile Phase 41
+        working-directory: aurora-live
+        run: python -m py_compile phase41_replay.py phase41_media.py phase41_capabilities.py phase41_complete.py release_wsgi.py tests/test_phase41.py
+      - name: Run deterministic Phase 41 tests
+        working-directory: aurora-live
+        run: python -m unittest tests.test_phase41
