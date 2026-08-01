@@ -82,7 +82,14 @@ class DeliveryQueue:
                 headers["X-Aurora-Signature"] = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
             request = urllib.request.Request(row["url"], data=body, headers=headers, method="POST")
             try:
-                with opener(request, timeout=timeout) as response:
+                from webhook_security import resolve_public_https_url, safe_urlopen
+
+                resolve_public_https_url(row["url"])
+                if opener is urllib.request.urlopen:
+                    response_cm = safe_urlopen(request, timeout=timeout)
+                else:
+                    response_cm = opener(request, timeout=timeout)
+                with response_cm as response:
                     status = int(getattr(response, "status", 200))
                 if 200 <= status < 300:
                     outcome = self.record(row["id"], True)

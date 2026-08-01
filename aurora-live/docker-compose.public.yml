@@ -70,6 +70,58 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  aurora-transport-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "phase38_worker.py", "--loop", "--provider", "all"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *aurora-environment
+      AURORA_AISSTREAM_API_KEY: ${AURORA_AISSTREAM_API_KEY:-}
+      AURORA_TRANSPORT_PROVIDERS: ${AURORA_TRANSPORT_PROVIDERS:-all}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  aurora-infrastructure-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "phase39_worker.py", "--loop", "--interval", "${AURORA_INFRASTRUCTURE_INTERVAL_SECONDS:-300}"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *aurora-environment
+      AURORA_EIA_API_KEY: ${AURORA_EIA_API_KEY:-}
+      AURORA_INFRASTRUCTURE_INTERVAL_SECONDS: ${AURORA_INFRASTRUCTURE_INTERVAL_SECONDS:-300}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  aurora-markets-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "phase40_worker.py", "--loop", "--interval", "${AURORA_MARKETS_INTERVAL_SECONDS:-300}"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *aurora-environment
+      AURORA_FRED_API_KEY: ${AURORA_FRED_API_KEY:-}
+      AURORA_EIA_API_KEY: ${AURORA_EIA_API_KEY:-}
+      AURORA_MARKETS_INTERVAL_SECONDS: ${AURORA_MARKETS_INTERVAL_SECONDS:-300}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped

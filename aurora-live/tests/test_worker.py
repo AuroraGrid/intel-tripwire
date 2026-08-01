@@ -60,7 +60,8 @@ class WorkerTests(unittest.TestCase):
 
     def test_refresh_queues_new_alert_deliveries(self):
         self.store.add_watchlist(self.user["id"], {"name": "Ports", "query": "port"}, self.workspace_id)
-        self.ops.add_webhook(self.user["id"], {"name": "Ops", "url": "https://hooks.example.com/aurora"}, self.workspace_id)
+        with patch("webhook_security.socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 443))]):
+            self.ops.add_webhook(self.user["id"], {"name": "Ops", "url": "https://hooks.example.com/aurora"}, self.workspace_id)
         collector = lambda force=True: {"events": [EVENT]}
         with patch.dict(os.environ, {"AURORA_REFRESH_INTERVAL_SECONDS": "10", "AURORA_DELIVERY_INTERVAL_SECONDS": "10"}, clear=False):
             worker = AuroraWorker(store=self.store, worker_id="worker-test", collector=collector)
@@ -72,21 +73,24 @@ class WorkerTests(unittest.TestCase):
 
     def test_retry_backoff_and_dead_letter(self):
         self.store.add_watchlist(self.user["id"], {"name": "Ports", "query": "port"}, self.workspace_id)
-        self.ops.add_webhook(self.user["id"], {"name": "Ops", "url": "https://hooks.example.com/aurora"}, self.workspace_id)
+        with patch("webhook_security.socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 443))]):
+            self.ops.add_webhook(self.user["id"], {"name": "Ops", "url": "https://hooks.example.com/aurora"}, self.workspace_id)
         result = self.store.ingest({"events": [EVENT]}, workspace_id=self.workspace_id)
         self.assertEqual(result["created"], 1)
         alert = self.store.alerts(self.user["id"], self.workspace_id)[0]
         self.ops.queue_deliveries(self.user["id"], alert["id"], self.workspace_id)
         queue = DeliveryQueue(self.ops, max_attempts=2, base_backoff=1, max_backoff=2)
         def failing(*args, **kwargs): raise RuntimeError("network down")
-        first = queue.deliver_due(opener=failing)
+        with patch("webhook_security.socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 443))]):
+            first = queue.deliver_due(opener=failing)
         self.assertEqual(first["failed"], 1)
         with self.store.db() as connection:
             row = connection.execute("SELECT status,next_attempt_at FROM deliveries WHERE workspace_id=?", (self.workspace_id,)).fetchone()
             self.assertEqual(row["status"], "failed")
             self.assertIsNotNone(row["next_attempt_at"])
             connection.execute("UPDATE deliveries SET next_attempt_at=? WHERE workspace_id=?", (now(), self.workspace_id))
-        second = queue.deliver_due(opener=failing)
+        with patch("webhook_security.socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 443))]):
+            second = queue.deliver_due(opener=failing)
         self.assertEqual(second["dead"], 1)
         with self.store.db() as connection:
             row = connection.execute("SELECT status,dead_lettered_at FROM deliveries WHERE workspace_id=?", (self.workspace_id,)).fetchone()

@@ -22,15 +22,49 @@ class ProductionApplication:
         return [body]
 
     def readiness(self):
-        checks = {"database": {"ok": False}, "workers": {"ok": True, "required": os.getenv("AURORA_REQUIRE_WORKER", "0") == "1"}}
+        require_worker = os.getenv("AURORA_REQUIRE_WORKER", "0").lower() in {"1", "true", "yes"}
+        require_ingestion = os.getenv("AURORA_REQUIRE_INGESTION", "1").lower() in {"1", "true", "yes"}
+        worker_stale = int(os.getenv("AURORA_WORKER_STALE_SECONDS", "120"))
+        ingestion_stale = int(os.getenv("AURORA_INGESTION_STALE_SECONDS", str(max(worker_stale, 900))))
+        ingestion_grace = int(os.getenv("AURORA_INGESTION_GRACE_SECONDS", "600"))
+        checks = {
+            "database": {"ok": False},
+            "workers": {"ok": True, "required": require_worker},
+            "ingestion": {"ok": True, "required": require_ingestion and require_worker},
+        }
         try:
             with self.base.store.db() as connection: connection.execute("SELECT 1").fetchone()
             checks["database"] = {"ok": True, "backend": self.base.store.backend}
         except Exception as exc:
             checks["database"] = {"ok": False, "error": type(exc).__name__}
-        workers = self.worker_state.status(int(os.getenv("AURORA_WORKER_STALE_SECONDS", "120")))
+        workers = self.worker_state.status(worker_stale)
         checks["workers"].update({"healthy": workers["healthy_workers"]})
-        if checks["workers"]["required"]: checks["workers"]["ok"] = workers["healthy_workers"] > 0
+        if checks["workers"]["required"]:
+            checks["workers"]["ok"] = workers["healthy_workers"] > 0
+
+        # Ingestion health: require a recent successful source_refresh (or grace for cold start).
+        jobs = {job["name"]: job for job in workers.get("jobs") or []}
+        refresh = jobs.get("source_refresh") or {}
+        last_status = str(refresh.get("last_status") or "")
+        last_finished = str(refresh.get("last_finished_at") or "")
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(seconds=max(1, ingestion_stale))).isoformat().replace("+00:00", "Z")
+        grace_cutoff = (now - timedelta(seconds=max(1, ingestion_grace))).isoformat().replace("+00:00", "Z")
+        fresh_success = last_status == "success" and last_finished >= cutoff
+        healthy_workers = [w for w in (workers.get("workers") or []) if w.get("healthy")]
+        youngest_start = min((str(w.get("started_at") or "") for w in healthy_workers), default="")
+        in_grace = bool(healthy_workers) and (not last_finished) and youngest_start >= grace_cutoff
+        checks["ingestion"].update({
+            "job": "source_refresh",
+            "last_status": last_status or None,
+            "last_finished_at": last_finished or None,
+            "fresh_success": fresh_success,
+            "grace": in_grace,
+        })
+        if checks["ingestion"]["required"]:
+            checks["ingestion"]["ok"] = bool(fresh_success or in_grace)
+
         ready = all(item["ok"] for item in checks.values())
         METRICS.set("aurora_readiness", 1 if ready else 0)
         METRICS.set("aurora_healthy_workers", workers["healthy_workers"])

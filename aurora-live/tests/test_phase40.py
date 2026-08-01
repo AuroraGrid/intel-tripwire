@@ -31,7 +31,7 @@ class Phase40Tests(unittest.TestCase):
         self.assertEqual(store.coverage()["qualified_layers"], 0)
         self.assertFalse(store.coverage()["fully_qualified"])
 
-    def test_observation_identity_is_idempotent(self):
+    def test_observation_updates_append_time_series_snapshots(self):
         store = MarketStore(":memory:")
         observation = MarketObservation(
             layer="crypto",
@@ -50,8 +50,10 @@ class Phase40Tests(unittest.TestCase):
         )
         first = store.record(observation)
         second = store.record(observation)
-        self.assertEqual(first, second)
-        self.assertEqual(len(store.observations("crypto")), 1)
+        self.assertNotEqual(first, second)
+        rows = store.observations("crypto")
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row["external_id"] for row in rows}, {"btc"})
 
     def test_coingecko_adapter_parses_markets(self):
         payload = [

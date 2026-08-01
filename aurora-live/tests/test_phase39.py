@@ -34,7 +34,7 @@ class Phase39Tests(unittest.TestCase):
         self.assertEqual(store.coverage()["qualified_layers"], 0)
         self.assertFalse(store.coverage()["fully_qualified"])
 
-    def test_observation_identity_is_idempotent(self):
+    def test_observation_updates_append_time_series_snapshots(self):
         store = InfrastructureStore(":memory:")
         observation = InfrastructureObservation(
             layer="cyber",
@@ -51,8 +51,10 @@ class Phase39Tests(unittest.TestCase):
         )
         first = store.record(observation)
         second = store.record(observation)
-        self.assertEqual(first, second)
-        self.assertEqual(len(store.observations("cyber")), 1)
+        self.assertNotEqual(first, second)
+        rows = store.observations("cyber")
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row["external_id"] for row in rows}, {"CVE-TEST-1"})
 
     def test_nws_adapter_parses_official_alert(self):
         payload = {

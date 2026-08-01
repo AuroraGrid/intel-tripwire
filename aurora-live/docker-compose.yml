@@ -86,5 +86,63 @@ services:
     tmpfs:
       - /tmp
 
+  aurora-transport-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "phase38_worker.py", "--loop", "--provider", "all"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AURORA_DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      AURORA_AISSTREAM_API_KEY: ${AURORA_AISSTREAM_API_KEY:-}
+      AURORA_TRANSPORT_PROVIDERS: ${AURORA_TRANSPORT_PROVIDERS:-all}
+      AURORA_AVIATION_INTERVAL_SECONDS: ${AURORA_AVIATION_INTERVAL_SECONDS:-300}
+      AURORA_MARITIME_INTERVAL_SECONDS: ${AURORA_MARITIME_INTERVAL_SECONDS:-60}
+      AURORA_TRANSPORT_HEARTBEAT_SECONDS: ${AURORA_TRANSPORT_HEARTBEAT_SECONDS:-30}
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  aurora-infrastructure-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "phase39_worker.py", "--loop", "--interval", "${AURORA_INFRASTRUCTURE_INTERVAL_SECONDS:-300}"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AURORA_DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      AURORA_EIA_API_KEY: ${AURORA_EIA_API_KEY:-}
+      AURORA_INFRASTRUCTURE_INTERVAL_SECONDS: ${AURORA_INFRASTRUCTURE_INTERVAL_SECONDS:-300}
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  aurora-markets-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "phase40_worker.py", "--loop", "--interval", "${AURORA_MARKETS_INTERVAL_SECONDS:-300}"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AURORA_DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      AURORA_FRED_API_KEY: ${AURORA_FRED_API_KEY:-}
+      AURORA_EIA_API_KEY: ${AURORA_EIA_API_KEY:-}
+      AURORA_MARKETS_INTERVAL_SECONDS: ${AURORA_MARKETS_INTERVAL_SECONDS:-300}
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
 volumes:
   aurora-postgres:

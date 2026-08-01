@@ -45,6 +45,18 @@ class ObservabilityTests(unittest.TestCase):
         data = json.loads(result["body"])
         self.assertTrue(data["checks"]["database"]["ok"])
         self.assertIn("workers", data["checks"])
+        self.assertIn("ingestion", data["checks"])
+
+    def test_readiness_requires_worker_and_ingestion_when_enabled(self):
+        import os
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {"AURORA_REQUIRE_WORKER": "1", "AURORA_REQUIRE_INGESTION": "1", "AURORA_INGESTION_GRACE_SECONDS": "0"}, clear=False):
+            result = request(self.app, "/api/platform/ready")
+        self.assertEqual(result["code"], 503)
+        data = json.loads(result["body"])
+        self.assertEqual(data["status"], "not_ready")
+        self.assertFalse(data["checks"]["workers"]["ok"])
 
     def test_metrics_render_counter(self):
         METRICS.inc("aurora_test_total", source="unit")

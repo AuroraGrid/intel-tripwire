@@ -23,11 +23,17 @@ class Phase44Tests(unittest.TestCase):
 
     def test_redundancy_modes(self):
         single = evaluate_redundancy(primary_ok=True, secondary_ok=None)
-        dual = evaluate_redundancy(primary_ok=True, secondary_ok=False)
+        dual_fail = evaluate_redundancy(primary_ok=True, secondary_ok=False)
+        dual_ok = evaluate_redundancy(primary_ok=True, secondary_ok=True)
         self.assertEqual(single["mode"], "single")
-        self.assertTrue(single["ok"])
-        self.assertEqual(dual["mode"], "dual")
-        self.assertFalse(dual["ok"])
+        # Single host is never verified redundancy, even when primary is healthy.
+        self.assertFalse(single["ok"])
+        self.assertFalse(single["verified"])
+        self.assertEqual(dual_fail["mode"], "dual")
+        self.assertFalse(dual_fail["ok"])
+        self.assertFalse(dual_fail["verified"])
+        self.assertTrue(dual_ok["ok"])
+        self.assertTrue(dual_ok["verified"])
 
     def test_benchmark_never_auto_promotes_ten_of_ten(self):
         report = build_benchmark_report(

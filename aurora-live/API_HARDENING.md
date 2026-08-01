@@ -9,7 +9,10 @@ Set these values before starting Docker Compose:
 - `AURORA_CORS_ORIGIN`: exact browser origin, such as `https://aurora.example.com`
 - `AURORA_ALLOWED_HOSTS`: comma-separated accepted host names
 - `AURORA_TRUSTED_PROXIES`: only reverse-proxy IP addresses or networks controlled by the operator
-- `AURORA_BOOTSTRAP_SECRET`: random bootstrap secret
+- `AURORA_BOOTSTRAP_SECRET`: random bootstrap secret (required for every `POST /api/platform/users`, including the first administrator)
+- Rate limits and push subscriptions are stored in the application database (shared across workers)
+- Webhook destinations must resolve only to public HTTPS endpoints; redirects are rejected at delivery
+- Readiness requires a healthy collection worker and recent successful `source_refresh` (with cold-start grace)
 - `AURORA_WEBHOOK_SECRET`: random HMAC secret
 
 Forwarded host, protocol, and client-address headers are ignored unless the direct peer belongs to `AURORA_TRUSTED_PROXIES`.

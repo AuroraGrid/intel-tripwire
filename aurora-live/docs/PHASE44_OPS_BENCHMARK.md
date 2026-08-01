@@ -7,9 +7,10 @@ Phase 44 adds systems that measure long-run readiness. It does **not** auto-awar
 ```text
 GET  /api/public/ops/summary
 GET  /api/public/ops/history
-POST /api/public/ops/sample
-POST /api/platform/ops/sample
+POST /api/platform/ops/sample   (authenticated)
 ```
+
+`POST /api/public/ops/sample` is disabled (returns 403). Record samples only through the authenticated platform route.
 
 Samples store uptime and redundancy outcomes with detail payloads suitable for later independent review.
 
@@ -19,7 +20,7 @@ Optional secondary heartbeat:
 AURORA_SECONDARY_HEARTBEAT_OK=true|false
 ```
 
-When unset, redundancy remains single-node/partial.
+When unset, mode is single-host and **never** counts as verified redundancy. Dual-host verification requires both primary and secondary heartbeats healthy.
 
 ## Benchmark report
 

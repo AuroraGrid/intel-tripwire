@@ -34,7 +34,9 @@ class MigrationTests(unittest.TestCase):
             context = source.auth(token)
             workspace_id = context["workspace_id"]
             source.add_watchlist(user["id"], {"name": "Ports", "query": "port"}, workspace_id)
-            operations.add_webhook(user["id"], {"name": "Ops", "url": "https://hooks.example.com/aurora"}, workspace_id)
+            from unittest.mock import patch
+            with patch("webhook_security.socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 443))]):
+                operations.add_webhook(user["id"], {"name": "Ops", "url": "https://hooks.example.com/aurora"}, workspace_id)
             result = source.ingest({"events": [E]}, workspace_id=workspace_id, actor_user_id=user["id"])
             incident_id = result["incident_ids"][0]
             alert = source.alerts(user["id"], workspace_id)[0]

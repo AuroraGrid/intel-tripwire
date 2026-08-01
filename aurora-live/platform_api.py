@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse,json,os,urllib.parse
+import argparse,json,os,secrets,urllib.parse
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from delivery import deliver_pending
@@ -70,8 +70,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             path,q,parts=self.route();p=self.body()
             if path=='/api/platform/users':
-                secret=os.getenv('AURORA_BOOTSTRAP_SECRET');supplied=self.headers.get('X-Bootstrap-Secret','')
-                if STORE.users()>0 and (not secret or supplied!=secret):raise PermissionError('bootstrap secret required')
+                secret=os.getenv('AURORA_BOOTSTRAP_SECRET') or ''
+                supplied=self.headers.get('X-Bootstrap-Secret','')
+                # Bootstrap secret is required for every user create, including the first administrator.
+                if not secret or not secrets.compare_digest(secret, supplied):
+                    raise PermissionError('valid bootstrap secret required')
                 u,t=STORE.create_user(p.get('email',''),p.get('role','analyst'));return self.send_json(201,{'user':u,'token':t,'warning':'store this token now'})
             u=self.user();uid=u['id']
             if path=='/api/platform/watchlists':return self.send_json(201,STORE.add_watchlist(uid,p))

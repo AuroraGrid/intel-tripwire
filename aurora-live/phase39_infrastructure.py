@@ -185,7 +185,10 @@ class InfrastructureStore:
                 observations INTEGER NOT NULL, started_at TEXT NOT NULL,
                 completed_at TEXT NOT NULL, duration_ms INTEGER NOT NULL,
                 error TEXT NOT NULL, metadata_json TEXT NOT NULL)""",
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_infra_observation_identity ON infrastructure_observations(layer,provider,external_id)",
+            # Append-only time-series: identity is non-unique; each update is a new snapshot.
+            "DROP INDEX IF EXISTS idx_infra_observation_identity",
+            "CREATE INDEX IF NOT EXISTS idx_infra_observation_identity ON infrastructure_observations(layer,provider,external_id)",
+            "CREATE INDEX IF NOT EXISTS idx_infra_observation_snapshot ON infrastructure_observations(layer,provider,external_id,observed_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_infra_layer_time ON infrastructure_observations(layer,observation_id DESC)",
             "CREATE INDEX IF NOT EXISTS idx_infra_runs_provider ON infrastructure_provider_runs(provider,run_id DESC)",
         ]
@@ -228,15 +231,9 @@ class InfrastructureStore:
             json.dumps(observation.payload, sort_keys=True, separators=(",", ":")),
             json.dumps(observation.provenance, sort_keys=True, separators=(",", ":")),
         )
+        # Always append a new snapshot so market/infra history is a true time series.
         with self._lock:
             cursor = self._connection.cursor()
-            cursor.execute(
-                f"SELECT observation_id FROM infrastructure_observations WHERE layer={self._p} AND provider={self._p} AND external_id={self._p} LIMIT 1",
-                (observation.layer, observation.provider, observation.external_id),
-            )
-            existing = cursor.fetchone()
-            if existing is not None:
-                return self._id(existing, "observation_id")
             if self.postgres:
                 cursor.execute(
                     "INSERT INTO infrastructure_observations(layer,provider,external_id,observed_at,event_time,severity,title,summary,source_url,latitude,longitude,payload_json,provenance_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING observation_id",

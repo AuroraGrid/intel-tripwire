@@ -35,7 +35,15 @@ def deliver_pending(operations, user_id, opener=urllib.request.urlopen, timeout=
             ).hexdigest()
         request = urllib.request.Request(row["url"], data=body, headers=headers, method="POST")
         try:
-            with opener(request, timeout=timeout) as response:
+            from webhook_security import resolve_public_https_url, safe_urlopen
+
+            # Re-validate at delivery time (DNS rebinding defense) and never follow redirects.
+            resolve_public_https_url(row["url"])
+            if opener is urllib.request.urlopen:
+                response_cm = safe_urlopen(request, timeout=timeout)
+            else:
+                response_cm = opener(request, timeout=timeout)
+            with response_cm as response:
                 status = int(getattr(response, "status", 200))
             if 200 <= status < 300:
                 operations.record_delivery(row["id"], True)

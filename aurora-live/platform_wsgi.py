@@ -4,6 +4,7 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import sys
 import threading
 import time
@@ -26,20 +27,12 @@ class HTTPError(Exception):
         super().__init__(message); self.status=status; self.code=code; self.message=message; self.headers=headers or []
 
 class RateLimiter:
-    def __init__(self,max_entries=10000):
-        self.max_entries=max(100,max_entries); self.data={}; self.lock=threading.Lock()
+    """Compatibility wrapper; prefers durable shared buckets when a store is attached."""
+    def __init__(self,max_entries=10000,store=None):
+        from durable_rate_limit import DurableRateLimiter
+        self._impl=DurableRateLimiter(store=store,max_entries=max_entries)
     def check(self,key,limit,window):
-        if limit<=0:return None
-        stamp=time.monotonic()
-        with self.lock:
-            started,count,_=self.data.get(key,(stamp,0,stamp))
-            if stamp-started>=window:started,count=stamp,0
-            count+=1; self.data[key]=(started,count,stamp)
-            if len(self.data)>self.max_entries:
-                for old,_ in sorted(self.data.items(),key=lambda x:x[1][2])[:len(self.data)-self.max_entries]:self.data.pop(old,None)
-            retry=max(1,int(window-(stamp-started)))
-            if count>limit:raise HTTPError(429,"rate_limited","request rate limit exceeded",[("Retry-After",str(retry)),("X-RateLimit-Limit",str(limit)),("X-RateLimit-Remaining","0")])
-            return [("X-RateLimit-Limit",str(limit)),("X-RateLimit-Remaining",str(max(0,limit-count)))]
+        return self._impl.check(key,limit,window)
 
 def csv_env(name,default=""):
     return [x.strip() for x in os.getenv(name,default).split(",") if x.strip()]
@@ -58,7 +51,9 @@ class PlatformApplication:
             try:self.proxies.append(ipaddress.ip_network(value,strict=False))
             except ValueError as exc:raise RuntimeError(f"invalid trusted proxy: {value}") from exc
         self.auth_limit=max(0,int(os.getenv("AURORA_AUTH_RATE_LIMIT","10"))); self.write_limit=max(0,int(os.getenv("AURORA_WRITE_RATE_LIMIT","120")))
-        self.window=max(1,int(os.getenv("AURORA_RATE_WINDOW_SECONDS","60"))); self.limiter=RateLimiter(int(os.getenv("AURORA_RATE_MAX_CLIENTS","10000")))
+        self.window=max(1,int(os.getenv("AURORA_RATE_WINDOW_SECONDS","60")))
+        # Shared across Gunicorn workers when backed by the application database.
+        self.limiter=RateLimiter(int(os.getenv("AURORA_RATE_MAX_CLIENTS","10000")), store=self.store)
     def trusted(self,address):
         try:ip=ipaddress.ip_address(address)
         except ValueError:return False
@@ -123,8 +118,10 @@ class PlatformApplication:
         if method=="GET" and path in {"/api/platform/ready","/api/platform/health"}:
             status="ready" if path.endswith("ready") else "ok"; return 200,self.json({"status":status,"time":now(),"users":self.store.users(),"database":self.store.backend}),"application/json; charset=utf-8","no-store",rate
         if method=="POST" and path=="/api/platform/users":
-            p=self.body(e); secret=os.getenv("AURORA_BOOTSTRAP_SECRET",""); supplied=str(e.get("HTTP_X_BOOTSTRAP_SECRET") or "")
-            if self.store.users()>0 and (not secret or supplied!=secret):raise HTTPError(403,"forbidden","valid bootstrap secret required")
+            p=self.body(e); secret=os.getenv("AURORA_BOOTSTRAP_SECRET","") or ""; supplied=str(e.get("HTTP_X_BOOTSTRAP_SECRET") or "")
+            # Bootstrap secret is required for every user create, including the first administrator.
+            if not secret or not secrets.compare_digest(secret, supplied):
+                raise HTTPError(403,"forbidden","valid bootstrap secret required")
             user,token=self.store.create_user(p.get("email",""),p.get("role","analyst")); return 201,self.json({"user":user,"token":token,"warning":"store this token now"}),"application/json; charset=utf-8","no-store",rate
         user=self.user(e); uid=user["id"]
         if method=="GET":

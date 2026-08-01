@@ -15,15 +15,18 @@ Open `http://localhost:8090/platform`.
 
 ## Create the first administrator
 
+`AURORA_BOOTSTRAP_SECRET` is required for **every** user creation, including the first administrator. Set it in `.env` before starting the stack.
+
 ```bash
 curl -sS -X POST http://localhost:8090/api/platform/users \
   -H 'Content-Type: application/json' \
+  -H "X-Bootstrap-Secret: $AURORA_BOOTSTRAP_SECRET" \
   -d '{"email":"admin@example.com","role":"admin"}'
 ```
 
-The first account can be created without the bootstrap header. Store the returned bearer token immediately; the server stores only its SHA-256 hash.
+Store the returned bearer token immediately; the server stores only its SHA-256 hash.
 
-Additional accounts require:
+Additional accounts use the same bootstrap header:
 
 ```bash
 curl -sS -X POST http://localhost:8090/api/platform/users \

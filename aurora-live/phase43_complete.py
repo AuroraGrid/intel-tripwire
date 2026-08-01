@@ -5,6 +5,7 @@ import os
 import uuid
 from copy import deepcopy
 
+from durable_public import DurableAbuseLimiter, DurableNotificationStore
 from phase32_product_spec import STATUSES
 from phase42_complete import Phase42Application
 from phase43_public import AbuseLimiter, NotificationStore, cache_headers_for, public_config, public_mode_enabled
@@ -14,8 +15,10 @@ from platform_wsgi import HTTPError, RID_RE
 class Phase43Application(Phase42Application):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.abuse = AbuseLimiter()
-        self.notifications = NotificationStore()
+        store = getattr(self, "store", None) or getattr(getattr(self, "platform", None), "store", None)
+        # Durable shared state across workers; memory fallback only if store missing.
+        self.abuse = DurableAbuseLimiter(store=store) if store is not None else AbuseLimiter()
+        self.notifications = DurableNotificationStore(store=store) if store is not None else NotificationStore()
 
     def _product_manifest(self):
         manifest = super()._product_manifest()
@@ -55,8 +58,12 @@ class Phase43Application(Phase42Application):
         return manifest
 
     def _client_key(self, environ) -> str:
-        forwarded = str(environ.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
-        remote = forwarded or str(environ.get("REMOTE_ADDR") or "unknown")
+        # Only honor X-Forwarded-For when the peer is a trusted proxy (same as platform).
+        platform = getattr(self, "platform", None)
+        if platform is not None and hasattr(platform, "client_ip"):
+            remote = platform.client_ip(environ)
+        else:
+            remote = str(environ.get("REMOTE_ADDR") or "unknown")
         path = str(environ.get("PATH_INFO") or "")
         return f"{remote}:{path}"
 

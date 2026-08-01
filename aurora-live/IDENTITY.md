@@ -11,6 +11,8 @@ AURORA authenticates every API request with a named token bound to one user and 
 
 The first administrator created in a new installation becomes the owner of the default workspace. Later administrators receive the `admin` workspace role.
 
+Creating any user via `POST /api/platform/users` requires a valid `X-Bootstrap-Secret` matching `AURORA_BOOTSTRAP_SECRET`, including the first administrator.
+
 ## Tokens
 
 Tokens are stored as SHA-256 digests. The cleartext secret is returned only when a token is created or rotated.

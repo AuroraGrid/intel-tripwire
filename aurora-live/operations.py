@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import ipaddress
 import secrets
-import urllib.parse
 
 from storage import now, sid
 
@@ -83,20 +81,10 @@ class Operations:
             return [dict(row) for row in connection.execute(sql, (user_id, workspace_id)).fetchall()]
 
     def _webhook_url(self, value):
-        url = str(value or "").strip()
-        parsed = urllib.parse.urlparse(url)
-        if parsed.scheme != "https" or not parsed.hostname:
-            raise ValueError("webhook URL must use https")
-        host = parsed.hostname.lower()
-        if host in {"localhost", "localhost.localdomain"} or host.endswith(".local"):
-            raise ValueError("local webhook destinations are not allowed")
-        try:
-            address = ipaddress.ip_address(host)
-        except ValueError:
-            address = None
-        if address and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved):
-            raise ValueError("private webhook destinations are not allowed")
-        return url
+        from webhook_security import resolve_public_https_url
+
+        # Resolve DNS and reject any private/loopback/link-local/metadata targets.
+        return resolve_public_https_url(value)
 
     def add_webhook(self, user_id, payload, workspace_id=None):
         workspace_id = self.workspace(user_id, workspace_id)

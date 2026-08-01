@@ -1,5 +1,16 @@
 # AURORA LIVE private beta release
 
+## Gate (current)
+
+| Surface | Decision |
+| --- | --- |
+| Private local beta on `127.0.0.1` | **GO** |
+| Home LAN share | **BLOCKED** |
+| Tunnel / port-forward / public reverse proxy | **BLOCKED** |
+| Invite-only or open public beta | **BLOCKED** |
+
+Binding constraint: trustworthy operation under shared or hostile access. Local loopback contains residual remote-beta blockers (webhook SSRF hardening, distributed limiter/store, phase 38–40 orchestration in default launcher).
+
 ## Status (operator host)
 
 Private **local beta** is the supported first release shape on Windows without Docker.
@@ -9,8 +20,9 @@ Private **local beta** is the supported first release shape on Windows without D
 | `release_check.py --allow-local` | required before start |
 | Platform | `http://127.0.0.1:8090` (Waitress / `release_wsgi`) |
 | Worker | `release_worker.py` heartbeat required for readiness |
-| Admin | first `POST /api/platform/users` with role `admin` |
-| Stack data plane | phase38/39/40 workers (optional but recommended) |
+| Admin | `POST /api/platform/users` with role `admin` **and** `X-Bootstrap-Secret` |
+| Stack data plane | phase38/39/40 workers started by default via `scripts/start_layer_workers.py` (`AURORA_START_LAYER_WORKERS=0` to disable) |
+| Remote beta gate | eight fixes required (bootstrap, time-series, ops auth, redundancy, layer workers, durable limits/push, webhook SSRF, readiness+ingestion) |
 
 ## Start (Windows)
 

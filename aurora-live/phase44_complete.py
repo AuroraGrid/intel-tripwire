@@ -83,9 +83,8 @@ class Phase44Application(Phase43Application):
                 return self._response(environ, start_response, 200, {"samples": rows, "total": len(rows)}, rid)
 
             if path == "/api/public/ops/sample" and method == "POST":
-                # public sample endpoint remains available for controlled demos; platform auth optional
-                sample = self._sample_ops()
-                return self._response(environ, start_response, 201, sample, rid)
+                # Unauthenticated sample writes are disabled; use authenticated platform route.
+                raise HTTPError(403, "forbidden", "authenticate via POST /api/platform/ops/sample")
 
             if path == "/api/platform/ops/sample" and method == "POST":
                 self._user(environ)

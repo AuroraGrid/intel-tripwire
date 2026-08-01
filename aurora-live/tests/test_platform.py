@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -109,14 +110,19 @@ class PlatformTests(unittest.TestCase):
 
     def test_webhook_delivery_guard(self):
         with self.assertRaises(ValueError): self.operations.add_webhook(self.user["id"], {"name":"bad","url":"http://127.0.0.1/x"}, self.workspace_id)
-        self.operations.add_webhook(self.user["id"], {"name":"Ops","url":"https://hooks.example.com/aurora"}, self.workspace_id)
+        with self.assertRaises(ValueError): self.operations.add_webhook(self.user["id"], {"name":"bad2","url":"https://127.0.0.1/x"}, self.workspace_id)
+        public_dns = patch("webhook_security.socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 443))])
+        with public_dns:
+            self.operations.add_webhook(self.user["id"], {"name":"Ops","url":"https://hooks.example.com/aurora"}, self.workspace_id)
         self.store.add_watchlist(self.user["id"], {"name":"Ports","query":"port"}, self.workspace_id)
         self.ingest()
         alert = self.store.alerts(self.user["id"], self.workspace_id)[0]
         self.operations.queue_deliveries(self.user["id"], alert["id"], self.workspace_id)
         seen = {}
         def opener(request, timeout=0): seen["body"] = json.loads(request.data.decode()); return Response()
-        self.assertEqual(deliver_pending(self.operations, self.user["id"], opener=opener), {"attempted":1,"delivered":1,"failed":0})
+        # Delivery re-resolves DNS (rebinding defense); keep public resolution mocked.
+        with public_dns:
+            self.assertEqual(deliver_pending(self.operations, self.user["id"], opener=opener), {"attempted":1,"delivered":1,"failed":0})
         self.assertEqual(seen["body"]["alert"]["status"], "PLAUSIBLE")
         self.assertEqual(self.operations.pending_deliveries(self.user["id"], workspace_id=self.workspace_id), [])
 

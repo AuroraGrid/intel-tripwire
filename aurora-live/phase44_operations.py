@@ -122,15 +122,30 @@ class OperationsHistoryStore:
 
 
 def evaluate_redundancy(*, primary_ok: bool, secondary_ok: bool | None = None) -> dict[str, Any]:
+    """Evaluate verified multi-host redundancy.
+
+    A single primary host is never counted as verified redundancy. Dual mode
+    requires both primary and secondary heartbeats to succeed.
+    """
     if secondary_ok is None:
         return {
             "mode": "single",
-            "ok": primary_ok,
-            "note": "Secondary heartbeat not configured; redundancy remains partial.",
+            "ok": False,
+            "primary_ok": primary_ok,
+            "secondary_ok": None,
+            "verified": False,
+            "note": "Single host only; secondary heartbeat not configured. Not verified redundancy.",
         }
+    verified = bool(primary_ok and secondary_ok)
     return {
         "mode": "dual",
-        "ok": bool(primary_ok and secondary_ok),
+        "ok": verified,
         "primary_ok": primary_ok,
         "secondary_ok": secondary_ok,
+        "verified": verified,
+        "note": (
+            "Verified dual-host redundancy."
+            if verified
+            else "Dual heartbeat configured but one or both hosts are not healthy."
+        ),
     }

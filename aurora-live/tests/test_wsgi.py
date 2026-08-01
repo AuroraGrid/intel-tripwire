@@ -59,5 +59,33 @@ class WSGITests(unittest.TestCase):
     def test_readiness_and_liveness(self):
         with self.app() as app:live=request(app,"/api/platform/live"); ready=request(app,"/api/platform/ready")
         self.assertEqual(live["json"]["status"],"alive"); self.assertEqual(ready["json"]["status"],"ready")
+    def test_bootstrap_secret_required_for_every_user_create(self):
+        with tempfile.TemporaryDirectory() as temp:
+            empty = Store(Path(temp) / "bootstrap.db")
+            with patch.dict(os.environ, {
+                "AURORA_ALLOWED_HOSTS": "localhost",
+                "AURORA_CORS_ORIGIN": "https://console.example",
+                "AURORA_BOOTSTRAP_SECRET": "bootstrap-test-secret-value",
+            }, clear=False):
+                app = create_application(store=empty)
+                missing = request(app, "/api/platform/users", "POST", {"email": "first@example.com", "role": "admin"})
+                wrong = request(
+                    app,
+                    "/api/platform/users",
+                    "POST",
+                    {"email": "first@example.com", "role": "admin"},
+                    {"X-Bootstrap-Secret": "wrong"},
+                )
+                ok = request(
+                    app,
+                    "/api/platform/users",
+                    "POST",
+                    {"email": "first@example.com", "role": "admin"},
+                    {"X-Bootstrap-Secret": "bootstrap-test-secret-value"},
+                )
+            self.assertEqual(missing["code"], 403)
+            self.assertEqual(wrong["code"], 403)
+            self.assertEqual(ok["code"], 201)
+            self.assertIn("token", ok["json"])
 
 if __name__=="__main__":unittest.main()
