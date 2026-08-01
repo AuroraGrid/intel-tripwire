@@ -97,20 +97,62 @@ class MediaStore:
                     source_url TEXT NOT NULL,
                     content_type TEXT NOT NULL,
                     byte_size INTEGER NOT NULL,
-                    content_sha256 TEXT NOT NULL,
-                    perceptual_hash TEXT NOT NULL,
-                    verification_state TEXT NOT NULL,
-                    license_note TEXT NOT NULL,
-                    parent_event_id TEXT NOT NULL,
-                    captured_at TEXT NOT NULL,
-                    detail_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    content_sha256 TEXT NOT NULL DEFAULT '',
+                    perceptual_hash TEXT NOT NULL DEFAULT '',
+                    verification_state TEXT NOT NULL DEFAULT '',
+                    license_note TEXT NOT NULL DEFAULT '',
+                    parent_event_id TEXT NOT NULL DEFAULT '',
+                    captured_at TEXT NOT NULL DEFAULT '',
+                    detail_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT ''
                 )"""
             )
+            # Fresh Postgres may create media_assets from an older partial definition
+            # (CREATE TABLE IF NOT EXISTS will not add missing columns).
+            required = {
+                "source_url": "TEXT NOT NULL DEFAULT ''",
+                "content_type": "TEXT NOT NULL DEFAULT ''",
+                "byte_size": "INTEGER NOT NULL DEFAULT 0",
+                "content_sha256": "TEXT NOT NULL DEFAULT ''",
+                "perceptual_hash": "TEXT NOT NULL DEFAULT ''",
+                "verification_state": "TEXT NOT NULL DEFAULT ''",
+                "license_note": "TEXT NOT NULL DEFAULT ''",
+                "parent_event_id": "TEXT NOT NULL DEFAULT ''",
+                "captured_at": "TEXT NOT NULL DEFAULT ''",
+                "detail_json": "TEXT NOT NULL DEFAULT '{}'",
+                "created_at": "TEXT NOT NULL DEFAULT ''",
+            }
+            existing = self._media_columns()
+            for name, decl in required.items():
+                if name not in existing:
+                    self._connection.execute(f"ALTER TABLE media_assets ADD COLUMN {name} {decl}")
             self._connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_media_hash ON media_assets(content_sha256, perceptual_hash)"
             )
             self._connection.commit()
+
+    def _media_columns(self) -> set[str]:
+        if self.postgres:
+            rows = self._connection.execute(
+                """SELECT column_name FROM information_schema.columns
+                   WHERE table_name = 'media_assets'"""
+            ).fetchall()
+            names: set[str] = set()
+            for row in rows:
+                if isinstance(row, dict):
+                    names.add(str(row.get("column_name") or row.get("COLUMN_NAME") or ""))
+                else:
+                    names.add(str(row[0]))
+            return {n for n in names if n}
+        rows = self._connection.execute("PRAGMA table_info(media_assets)").fetchall()
+        names = set()
+        for row in rows:
+            if isinstance(row, dict):
+                names.add(str(row.get("name") or ""))
+            else:
+                # sqlite3.Row: cid, name, type, notnull, dflt_value, pk
+                names.add(str(row[1]))
+        return {n for n in names if n}
 
     @staticmethod
     def _dict(row: Any) -> dict[str, Any]:

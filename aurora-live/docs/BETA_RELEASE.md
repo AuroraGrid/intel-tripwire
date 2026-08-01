@@ -26,6 +26,8 @@ Private **local beta** is the supported first release shape on Windows without D
 
 ## Start (Windows)
 
+### Option A — Waitress (no Docker)
+
 ```powershell
 cd aurora-live
 # 1) copy and fill secrets (never commit .env)
@@ -34,6 +36,20 @@ copy .env.example .env
 
 powershell -ExecutionPolicy Bypass -File scripts/start-beta-local.ps1
 ```
+
+### Option B — Local Docker Compose (Postgres + workers)
+
+Requires Docker Desktop / WSL2 engine healthy. Binds **only** `127.0.0.1:8090`.
+
+```powershell
+cd aurora-live
+# .env must include POSTGRES_PASSWORD, AURORA_BOOTSTRAP_SECRET, AURORA_WEBHOOK_SECRET,
+# AURORA_CORS_ORIGIN, AURORA_ALLOWED_HOSTS (include localhost), plus feed keys as needed.
+powershell -ExecutionPolicy Bypass -File scripts/start-local-compose.ps1
+```
+
+Staged start order (encoded in the script): postgres → platform (schema) → workers.
+Do not start all app services in parallel on an empty Postgres volume.
 
 Open:
 
