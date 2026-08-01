@@ -186,6 +186,30 @@ class WebcamStore:
                 value["detail"] = {}
         return values
 
+    def close(self) -> None:
+        """Close the underlying database connection to release file handles (Windows-safe)."""
+        try:
+            with self._lock:
+                conn = getattr(self, "_connection", None)
+                if conn is None:
+                    return
+                try:
+                    conn.close()
+                except Exception:
+                    # best-effort close; ignore errors
+                    pass
+                finally:
+                    self._connection = None
+        except Exception:
+            # swallow during interpreter teardown
+            pass
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
 
 class DurableWebcamRegistry:
     """Phase 33-compatible webcam registry backed by append-only health evidence."""

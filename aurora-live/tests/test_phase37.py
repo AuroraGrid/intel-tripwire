@@ -109,6 +109,11 @@ class Phase37Tests(unittest.TestCase):
             self.assertEqual(restored["health"], "ONLINE")
             self.assertEqual(len(history), 1)
             self.assertEqual(history[0]["detail"]["status"], 200)
+            # Close database connections to avoid Windows file locks during tempdir cleanup
+            first.store.close()
+            second_store.close()
+            import gc
+            gc.collect()
 
     def test_hls_requires_playlist_evidence(self):
         item = source("North America", 1)

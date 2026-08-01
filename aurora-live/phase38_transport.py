@@ -393,6 +393,28 @@ class TransportStore:
             "generated_at": _now(),
         }
 
+    def close(self) -> None:
+        """Close the underlying database connection to release file handles (Windows-safe)."""
+        try:
+            with self._lock:
+                conn = getattr(self, "_connection", None)
+                if conn is None:
+                    return
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                finally:
+                    self._connection = None
+        except Exception:
+            pass
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
 
 class TransportRegistry:
     """Provider registration never implies live operational qualification."""
