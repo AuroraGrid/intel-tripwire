@@ -2,3 +2,11 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+
+var/
+
+data/*.db
+
+data/*.sqlite3
+
+**/beta-admin.json
