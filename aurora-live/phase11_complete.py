@@ -3,13 +3,13 @@ from __future__ import annotations
 import urllib.parse
 import uuid
 
-from phase10_complete import Phase10Application
+from phase10_complete import Phase10CompleteApplication
 from phase11_outputs import SystemOutputStore
 from phase11_store import ForecastLedger
 from platform_wsgi import HTTPError, RID_RE
 
 
-class Phase11Application(Phase10Application):
+class Phase11Application(Phase10CompleteApplication):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.forecasts = ForecastLedger(self.store)

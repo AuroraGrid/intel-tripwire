@@ -67,7 +67,7 @@ CACHE=Cache()
 
 def _json(url:str,method:str="GET",body:bytes|None=None)->Any:
     req=urllib.request.Request(url,data=body,method=method,headers={"User-Agent":"AURORA-LIVE/1.0 (+mailto:hr185882@gmail.com)","Accept":"application/json","Content-Type":"application/x-www-form-urlencoded"})
-    with urllib.request.urlopen(req,timeout=20) as response:return json.loads(response.read().decode("utf-8","replace"))
+    with urllib.request.urlopen(req,timeout=8) as response:return json.loads(response.read().decode("utf-8","replace"))
 
 def _asset(kind:str,name:str,lat:float,lon:float,**extra)->dict[str,Any]:
     return {"id":app.stable_id(kind,name),"type":kind,"name":name,"latitude":lat,"longitude":lon,**extra}
@@ -101,9 +101,9 @@ def submarine_cables()->dict[str,Any]:
 
 def overpass_assets(kind:str)->list[dict[str,Any]]:
     queries={
-        "datacenter":"[out:json][timeout:90];(node[\"telecom\"=\"data_center\"];way[\"telecom\"=\"data_center\"];relation[\"telecom\"=\"data_center\"];node[\"man_made\"=\"data_centre\"];way[\"man_made\"=\"data_centre\"];);out center tags;",
-        "pipeline":"[out:json][timeout:90];(way[\"man_made\"=\"pipeline\"][\"substance\"~\"gas|oil|lng\",i];relation[\"man_made\"=\"pipeline\"][\"substance\"~\"gas|oil|lng\",i];);out center tags;",
-        "lng":"[out:json][timeout:90];(node[\"industrial\"=\"terminal\"][\"product\"~\"lng|natural_gas\",i];way[\"industrial\"=\"terminal\"][\"product\"~\"lng|natural_gas\",i];);out center tags;"
+        "datacenter":"[out:json][timeout:12];(node[\"telecom\"=\"data_center\"];way[\"telecom\"=\"data_center\"];relation[\"telecom\"=\"data_center\"];node[\"man_made\"=\"data_centre\"];way[\"man_made\"=\"data_centre\"];);out center tags;",
+        "pipeline":"[out:json][timeout:12];(way[\"man_made\"=\"pipeline\"][\"substance\"~\"gas|oil|lng\",i];relation[\"man_made\"=\"pipeline\"][\"substance\"~\"gas|oil|lng\",i];);out center tags;",
+        "lng":"[out:json][timeout:12];(node[\"industrial\"=\"terminal\"][\"product\"~\"lng|natural_gas\",i];way[\"industrial\"=\"terminal\"][\"product\"~\"lng|natural_gas\",i];);out center tags;"
     }
     if kind not in queries:raise ValueError("unsupported infrastructure type")
     def load():

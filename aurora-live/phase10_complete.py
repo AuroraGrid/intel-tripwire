@@ -55,7 +55,9 @@ class Phase10CompleteApplication(Phase10Application):
     def _all_assets(self,query):
         rows=all_static_assets();counts=defaultdict(int);errors=[]
         for row in rows:counts[row["type"]]+=1
-        requested={x.strip() for x in _value(query,"live","cables,datacenter,pipeline,lng").split(",") if x.strip()}
+        # Default is static-only. Live OSM/cable pulls are opt-in via ?live=...
+        # so the map does not hang Gunicorn waiting on Overpass.
+        requested={x.strip() for x in _value(query,"live","").split(",") if x.strip()}
         if "cables" in requested:
             try:
                 data=submarine_cables()
