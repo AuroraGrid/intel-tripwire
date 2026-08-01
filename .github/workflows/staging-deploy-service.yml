@@ -1,4 +1,4 @@
-name: Staging deploy and smoke tests (service Postgres)
+﻿name: Staging deploy and smoke tests (service Postgres)
 
 on:
   workflow_dispatch: {}
@@ -21,10 +21,10 @@ jobs:
         options: >-
           --health-cmd="pg_isready -U postgres" --health-interval=5s --health-timeout=2s --health-retries=10
     env:
-      AURORA_TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
-      AURORA_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-      AURORA_PHASE36_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/postgres
-      AURORA_PHASE37_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/postgres
+      AURORA_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      AURORA_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      AURORA_PHASE36_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+      AURORA_PHASE37_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
 
@@ -67,4 +67,4 @@ PY
           python -m pytest aurora-live/tests/test_phase36.py::Phase36Tests::test_postgres_migration_contract -q || true
 
       - name: Post-deploy note
-        run: echo "Staging deploy & smoke steps completed. Review logs for migration and test results." 
+        run: echo "Staging deploy & smoke steps completed. Review logs for migration and test results."
