@@ -28,6 +28,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Debug runner info
+        run: |
+          echo "Runner uname:"; uname -a || hostname
+          echo "Environment sample:"; env | sort | sed -n '1,200p'
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
