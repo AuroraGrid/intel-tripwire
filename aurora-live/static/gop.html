@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070b14">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <title>AURORA LIVE — Global Operating Picture</title>
+  <style>
+    :root{color-scheme:dark;--bg:#070b14;--panel:#0d1422;--line:#22314a;--text:#eef4ff;--muted:#8fa2c2;--cyan:#62d7ff;--green:#42d392;--yellow:#f4c95d;--red:#ff6577;--orange:#ff9a55}
+    *{box-sizing:border-box}body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;background:radial-gradient(circle at 80% -10%,rgba(71,125,255,.16),transparent 35%),var(--bg);color:var(--text)}
+    header{display:flex;gap:12px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(7,11,20,.9);backdrop-filter:blur(12px);z-index:5}
+    .brand{font-weight:800;letter-spacing:.08em}.brand small{display:block;color:var(--muted);font-weight:500;letter-spacing:.12em;font-size:11px}
+    nav{display:flex;gap:8px;flex-wrap:wrap}nav button,.btn{border:1px solid var(--line);background:#121d30;color:var(--text);border-radius:9px;padding:9px 12px;cursor:pointer}
+    nav button.active,.btn.primary{background:linear-gradient(135deg,#19556f,#1d4f8f);border-color:#2e789d}
+    main{padding:18px 20px 40px;display:grid;gap:16px}
+    .panel{display:none}.panel.active{display:grid;gap:16px}
+    .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+    .card{background:linear-gradient(180deg,rgba(17,27,44,.98),rgba(12,20,34,.98));border:1px solid var(--line);border-radius:14px;padding:14px}
+    .kpi .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+    .kpi strong{display:block;font-size:24px;margin-top:6px}
+    table{width:100%;border-collapse:collapse}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--muted);font-size:11px;text-transform:uppercase}
+    .badge{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px}
+    .badge.live{color:var(--green);border-color:rgba(66,211,146,.4)}.badge.partial{color:var(--yellow);border-color:rgba(244,201,93,.4)}
+    .badge.planned,.badge.not_verified,.badge.blocked{color:var(--orange);border-color:rgba(255,154,85,.4)}
+    .meta,.empty{color:var(--muted)}pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);font-size:12px;max-height:280px;overflow:auto}
+    .incident{padding:10px 0;border-bottom:1px solid rgba(34,49,74,.8)}.incident:last-child{border-bottom:0}
+    #statusLine{margin-left:auto;color:var(--muted);font-size:12px}
+    @media(max-width:720px){header{flex-wrap:wrap}#statusLine{width:100%;margin-left:0}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">AURORA LIVE <small id="phaseLabel">Loading</small></div>
+    <nav>
+      <button class="active" data-view="gop">Global Operating Picture</button>
+      <button data-view="incident">Incident Room</button>
+      <button data-view="health">Source Health</button>
+    </nav>
+    <button class="btn primary" id="refreshBtn">Refresh evidence</button>
+    <div id="statusLine">Waiting for runtime APIs…</div>
+  </header>
+  <main>
+    <section class="panel active" data-view-panel="gop">
+      <div class="card">
+        <h2 style="margin:0 0 8px">Capability status (runtime evidence)</h2>
+        <p class="meta" style="margin:0 0 12px">Statuses come from product APIs. Labels alone never mark a source LIVE.</p>
+        <div class="grid" id="capabilityCounts"></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+          <h3 style="margin:0">Capability matrix</h3>
+          <span class="meta" id="gapCount">0 open gaps</span>
+        </div>
+        <div style="overflow:auto">
+          <table>
+            <thead><tr><th>Capability</th><th>Domain</th><th>Status</th><th>Priority</th><th>Evidence / reason</th></tr></thead>
+            <tbody id="capabilityTable"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">P0 gaps</h3>
+        <ul id="p0Gaps"></ul>
+      </div>
+    </section>
+
+    <section class="panel" data-view-panel="incident">
+      <div class="card">
+        <h2 style="margin-top:0">Incident Room (public observation stream)</h2>
+        <p class="meta">Recent durable transport, infrastructure, market, and replay records. Analyst write paths remain on the authenticated operations console.</p>
+        <div id="incidentFeed"></div>
+      </div>
+    </section>
+
+    <section class="panel" data-view-panel="health">
+      <div class="card">
+        <h2 style="margin-top:0">Source Health</h2>
+        <p class="meta">Feed health is projected from live API payloads for webcams, transport, infrastructure, markets, replay, and media.</p>
+      </div>
+      <div class="grid" id="healthPanels" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))"></div>
+    </section>
+  </main>
+  <script src="/static/aurora-live.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+    }
+  </script>
+</body>
+</html>

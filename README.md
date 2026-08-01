@@ -39,23 +39,45 @@ AAIK operates across the complete workflow. Luna expands possibilities, Terra va
 
 The repository contains a staged Python application and a machine-readable capability registry. The product specification distinguishes implemented, partial, planned, blocked, and unverified capabilities so roadmap language is not mistaken for working functionality.
 
-Phase 38 adds transport-provider adapters, durable provider-run telemetry, freshness-aware qualification, a supervised worker, health APIs, PostgreSQL support, and deployment configuration. This is meaningful aviation and maritime implementation, but it does not establish complete global aircraft-position or vessel coverage. The capability registry therefore classifies both transportation domains as PARTIAL pending qualified production persistence, coverage validation, and licensing review.
+**Release entrypoint:** `aurora-live/release_wsgi.py` currently serves **Phase 44** (`Phase44Application`).
 
-Current documented priorities include:
+### Completed platform layers
 
-- regional webcam registry and health monitoring
-- completion and production qualification of aviation and maritime coverage
-- severe-weather, internet-outage, and BGP layers
-- equities, energy, and prediction-market surfaces
-- public PWA deployment
-- unified event and evidence replay
+| Phase | Capability |
+|------:|------------|
+| 38 | Aviation / maritime transport adapters, health, workers |
+| 39 | Infrastructure-risk layers (weather, wildfire, outage, BGP, power, cyber, sanctions, government alerts) |
+| 40 | Markets: equities/indexes, energy, commodities, FX, crypto, economic indicators, prediction markets |
+| 41 | Unified multi-domain replay + media lineage / hash verification |
+| 42 | Public Global Operating Picture, Incident Room, Source Health UI |
+| 43 | PWA shell, public no-paywall controls, caching headers, abuse rate limits, notification scaffolding |
+| 44 | Ops history / redundancy samples + competitive benchmark harness (never auto-claims 10/10) |
+
+Transport and infrastructure remain **PARTIAL** until production persistence, coverage, licensing, and freshness gates pass. Market layers become LIVE only with qualified durable provider runs. Webcams remain non-LIVE until the 70-camera matrix is stream-verified ONLINE in all seven regions.
+
+### Webcam seed tooling (issue #57)
+
+```bash
+cd aurora-live
+python scripts/seed_webcams.py --database var/webcams.sqlite3
+python scripts/verify_webcam_matrix.py --database var/webcams.sqlite3
+# optional live probes:
+python scripts/verify_webcam_matrix.py --database var/webcams.sqlite3 --probe
+```
+
+The seed manifest registers 70 region-balanced placeholders with explicit license notes. **Registration is not ONLINE evidence.**
 
 See:
 
 - `aurora-live/docs/AURORA_LIVE_CANONICAL_PRODUCT_SPEC.md`
+- `aurora-live/docs/PHASE40_MARKETS.md`
+- `aurora-live/docs/PHASE41_REPLAY_MEDIA.md`
+- `aurora-live/docs/PHASE42_PRODUCTION_UI.md`
+- `aurora-live/docs/PHASE43_PWA_PUBLIC.md`
+- `aurora-live/docs/PHASE44_OPS_BENCHMARK.md`
+- `aurora-live/docs/WEBCAM_SEED_MATRIX.md`
 - `aurora-live/phase32_product_spec.py`
-- `aurora-live/phase38_complete.py`
-- `aurora-live/docs/PHASE38_PROVIDER_ADAPTERS.md`
+- `aurora-live/phase44_complete.py`
 
 ## Evidence discipline
 

@@ -1,0 +1,45 @@
+name: AURORA Phase 43 PWA Public
+
+on:
+  pull_request:
+    paths:
+      - 'aurora-live/phase43_*.py'
+      - 'aurora-live/static/manifest.webmanifest'
+      - 'aurora-live/static/sw.js'
+      - 'aurora-live/release_wsgi.py'
+      - 'aurora-live/tests/test_phase43*.py'
+      - 'aurora-live/docs/PHASE43_PWA_PUBLIC.md'
+      - '.github/workflows/phase43.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'aurora-live/phase43_*.py'
+      - 'aurora-live/static/manifest.webmanifest'
+      - 'aurora-live/static/sw.js'
+      - 'aurora-live/release_wsgi.py'
+      - 'aurora-live/tests/test_phase43*.py'
+      - 'aurora-live/docs/PHASE43_PWA_PUBLIC.md'
+      - '.github/workflows/phase43.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install runtime dependencies
+        run: python -m pip install -r aurora-live/requirements.txt
+      - name: Compile and test Phase 43
+        working-directory: aurora-live
+        run: |
+          python -m py_compile phase43_public.py phase43_complete.py release_wsgi.py tests/test_phase43.py
+          python -m unittest tests.test_phase43
