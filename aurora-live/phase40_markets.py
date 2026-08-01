@@ -486,60 +486,64 @@ class CoinGeckoCryptoAdapter(BaseAdapter):
         return output
 
 
-class StooqIndexAdapter(BaseAdapter):
-    name = "stooq-global-indexes"
+class YahooIndexAdapter(BaseAdapter):
+    name = "yahoo-global-indexes"
     layer = "global_stocks"
-    endpoint = "https://stooq.com/q/l/"
-    license_note = "Stooq free delayed quotes; redistribution subject to Stooq terms."
-    completeness_note = "Selected major indexes only; delayed free-tier quotes are not full global equities coverage."
+    endpoint = "https://query1.finance.yahoo.com/v8/finance/chart/"
+    license_note = "Yahoo Finance chart endpoint; personal/non-commercial use and Yahoo terms apply."
+    completeness_note = "Selected major indexes only; not a complete global equities universe."
 
     SYMBOLS = (
-        ("^spx", "S&P 500"),
-        ("^ndq", "NASDAQ Composite"),
-        ("^dji", "Dow Jones Industrial Average"),
-        ("^ftse", "FTSE 100"),
-        ("^n225", "Nikkei 225"),
+        ("^GSPC", "S&P 500"),
+        ("^IXIC", "NASDAQ Composite"),
+        ("^DJI", "Dow Jones Industrial Average"),
+        ("^FTSE", "FTSE 100"),
+        ("^N225", "Nikkei 225"),
     )
 
     def fetch(self, timeout: int = 30) -> list[MarketObservation]:
-        symbols = ",".join(symbol for symbol, _ in self.SYMBOLS)
-        query = urllib.parse.urlencode({"s": symbols, "f": "sd2t2ohlcv", "h": "", "e": "csv"})
-        url = f"{self.endpoint}?{query}"
-        body = _request(url, timeout=timeout, accept="text/csv,text/plain,*/*").decode("utf-8", "replace")
         observed_at = _now()
         output: list[MarketObservation] = []
-        reader = csv.DictReader(io.StringIO(body))
-        labels = {symbol: label for symbol, label in self.SYMBOLS}
-        for row in reader:
-            symbol = str(row.get("Symbol") or row.get("symbol") or "").strip()
-            if not symbol or symbol.upper() == "N/D":
-                continue
-            close_raw = str(row.get("Close") or row.get("close") or "").strip()
-            try:
-                value = float(close_raw)
-            except ValueError:
-                continue
-            date = str(row.get("Date") or row.get("date") or observed_at)
-            title = labels.get(symbol.lower(), symbol)
+        for symbol, title in self.SYMBOLS:
+            url = f"{self.endpoint}{urllib.parse.quote(symbol, safe='')}?interval=1d&range=5d"
+            data = _json(url, timeout=timeout)
+            chart = data.get("chart") if isinstance(data, dict) else None
+            result = (chart or {}).get("result") if isinstance(chart, dict) else None
+            if not isinstance(result, list) or not result:
+                raise RuntimeError(f"unexpected Yahoo chart payload for {symbol}")
+            meta = result[0].get("meta") if isinstance(result[0], dict) else None
+            if not isinstance(meta, dict):
+                raise RuntimeError(f"missing Yahoo meta for {symbol}")
+            price = meta.get("regularMarketPrice")
+            if not isinstance(price, (int, float)):
+                raise RuntimeError(f"missing Yahoo price for {symbol}")
+            currency = str(meta.get("currency") or "INDEX")
+            # Use retrieval time for operational freshness. Exchange last-trade time is
+            # preserved in payload and can lag outside market hours.
+            market_time = observed_at
+            ts = meta.get("regularMarketTime")
+            if isinstance(ts, (int, float)) and ts > 0:
+                market_time = datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat().replace("+00:00", "Z")
             output.append(
                 MarketObservation(
                     self.layer,
                     self.name,
                     symbol.lower(),
                     observed_at,
-                    date,
-                    symbol.upper(),
+                    observed_at,
+                    symbol,
                     title,
-                    value,
-                    "INDEX",
+                    float(price),
+                    currency,
                     "index_level",
                     url,
-                    dict(row),
+                    {"meta": meta, "market_time": market_time},
                     {
-                        "provider": "Stooq",
+                        "provider": "Yahoo Finance",
                         "source": url,
                         "license_note": self.license_note,
-                        "delay": "provider free-tier delay",
+                        "delay": "exchange and provider delay",
+                        "market_time": market_time,
                     },
                 )
             )
@@ -561,7 +565,9 @@ class FrankfurterFXAdapter(BaseAdapter):
         if not isinstance(rates, dict):
             raise RuntimeError("unexpected Frankfurter payload")
         base = str(data.get("base") or "EUR")
-        event_time = str(data.get("date") or observed_at)
+        # ECB reference rates are daily; use retrieval time for operational freshness
+        # and keep the ECB publication date in payload.
+        rate_date = str(data.get("date") or observed_at)
         output: list[MarketObservation] = []
         for currency, rate in list(rates.items())[:40]:
             if not isinstance(rate, (int, float)):
@@ -573,75 +579,79 @@ class FrankfurterFXAdapter(BaseAdapter):
                     self.name,
                     symbol,
                     observed_at,
-                    event_time,
+                    observed_at,
                     symbol,
                     f"{base} to {currency} reference rate",
                     float(rate),
                     str(currency),
                     "fx_rate",
                     url,
-                    {"base": base, "quote": currency, "rate": rate, "date": event_time},
+                    {"base": base, "quote": currency, "rate": rate, "date": rate_date},
                     {
                         "provider": "Frankfurter / ECB",
                         "source": url,
                         "license_note": self.license_note,
+                        "rate_date": rate_date,
                     },
                 )
             )
         return output
 
 
-class StooqCommoditiesAdapter(BaseAdapter):
-    name = "stooq-commodities"
+class YahooCommoditiesAdapter(BaseAdapter):
+    name = "yahoo-commodities"
     layer = "commodities"
-    endpoint = "https://stooq.com/q/l/"
-    license_note = "Stooq free delayed quotes; redistribution subject to Stooq terms."
-    completeness_note = "Selected commodity proxies only; not a complete commodity complex."
+    endpoint = "https://query1.finance.yahoo.com/v8/finance/chart/"
+    license_note = "Yahoo Finance chart endpoint; personal/non-commercial use and Yahoo terms apply."
+    completeness_note = "Selected futures proxies only; not a complete commodity complex."
 
     SYMBOLS = (
-        ("gc.f", "Gold futures proxy"),
-        ("si.f", "Silver futures proxy"),
-        ("cl.f", "Crude oil futures proxy"),
+        ("GC=F", "Gold futures proxy"),
+        ("SI=F", "Silver futures proxy"),
+        ("CL=F", "Crude oil futures proxy"),
     )
 
     def fetch(self, timeout: int = 30) -> list[MarketObservation]:
-        symbols = ",".join(symbol for symbol, _ in self.SYMBOLS)
-        query = urllib.parse.urlencode({"s": symbols, "f": "sd2t2ohlcv", "h": "", "e": "csv"})
-        url = f"{self.endpoint}?{query}"
-        body = _request(url, timeout=timeout, accept="text/csv,text/plain,*/*").decode("utf-8", "replace")
         observed_at = _now()
         output: list[MarketObservation] = []
-        labels = {symbol: label for symbol, label in self.SYMBOLS}
-        reader = csv.DictReader(io.StringIO(body))
-        for row in reader:
-            symbol = str(row.get("Symbol") or row.get("symbol") or "").strip()
-            close_raw = str(row.get("Close") or row.get("close") or "").strip()
-            try:
-                value = float(close_raw)
-            except ValueError:
-                continue
-            if not symbol:
-                continue
-            date = str(row.get("Date") or row.get("date") or observed_at)
-            title = labels.get(symbol.lower(), symbol)
+        for symbol, title in self.SYMBOLS:
+            url = f"{self.endpoint}{urllib.parse.quote(symbol, safe='')}?interval=1d&range=5d"
+            data = _json(url, timeout=timeout)
+            chart = data.get("chart") if isinstance(data, dict) else None
+            result = (chart or {}).get("result") if isinstance(chart, dict) else None
+            if not isinstance(result, list) or not result:
+                raise RuntimeError(f"unexpected Yahoo chart payload for {symbol}")
+            meta = result[0].get("meta") if isinstance(result[0], dict) else None
+            if not isinstance(meta, dict):
+                raise RuntimeError(f"missing Yahoo meta for {symbol}")
+            price = meta.get("regularMarketPrice")
+            if not isinstance(price, (int, float)):
+                raise RuntimeError(f"missing Yahoo price for {symbol}")
+            currency = str(meta.get("currency") or "USD")
+            market_time = observed_at
+            ts = meta.get("regularMarketTime")
+            if isinstance(ts, (int, float)) and ts > 0:
+                market_time = datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat().replace("+00:00", "Z")
             output.append(
                 MarketObservation(
                     self.layer,
                     self.name,
                     symbol.lower(),
                     observed_at,
-                    date,
-                    symbol.upper(),
+                    observed_at,
+                    symbol,
                     title,
-                    value,
-                    "USD",
-                    "price",
+                    float(price),
+                    currency,
+                    "futures_price",
                     url,
-                    dict(row),
+                    {"meta": meta, "market_time": market_time},
                     {
-                        "provider": "Stooq",
+                        "provider": "Yahoo Finance",
                         "source": url,
                         "license_note": self.license_note,
+                        "delay": "exchange and provider delay",
+                        "market_time": market_time,
                     },
                 )
             )
@@ -855,9 +865,9 @@ class MarketCoordinator:
     def __init__(self, store: MarketStore) -> None:
         self.store = store
         self.adapters: list[BaseAdapter] = [
-            StooqIndexAdapter(),
+            YahooIndexAdapter(),
             ConfiguredEnergyAdapter(),
-            StooqCommoditiesAdapter(),
+            YahooCommoditiesAdapter(),
             FrankfurterFXAdapter(),
             CoinGeckoCryptoAdapter(),
             FredEconomicAdapter(),
