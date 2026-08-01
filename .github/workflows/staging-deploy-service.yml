@@ -2,6 +2,9 @@ name: Staging deploy and smoke tests (service Postgres)
 
 on:
   workflow_dispatch: {}
+  push:
+    branches:
+      - main
 
 jobs:
   deploy-and-smoke:
