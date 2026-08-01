@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07101b">
+  <meta name="description" content="AURORA GRID / Intel Tripwire private beta — evidence-first open-source intelligence and decision support.">
+  <meta property="og:title" content="AURORA GRID — Private Beta">
+  <meta property="og:description" content="Evidence-first monitoring, verification, forecasting, and operational intelligence.">
+  <meta property="og:type" content="website">
+  <title>AURORA GRID — Private Beta</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050911;
+      --panel: rgba(12, 23, 38, .86);
+      --panel-strong: #0c1726;
+      --line: #24364f;
+      --text: #edf5ff;
+      --muted: #91a5c4;
+      --cyan: #65dcff;
+      --blue: #4c7dff;
+      --green: #45d59a;
+      --yellow: #f4ca61;
+      --red: #ff7382;
+      --shadow: 0 24px 80px rgba(0,0,0,.36);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 78% -8%, rgba(76,125,255,.20), transparent 34%),
+        radial-gradient(circle at -5% 28%, rgba(101,220,255,.12), transparent 30%),
+        linear-gradient(180deg, #050911 0%, #07101b 60%, #050911 100%);
+      font: 15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(101,220,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(101,220,255,.025) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: linear-gradient(to bottom, black, transparent 88%);
+    }
+    a { color: inherit; }
+    .wrap { width: min(1120px, calc(100% - 36px)); margin: 0 auto; }
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid rgba(36,54,79,.72);
+      background: rgba(5,9,17,.78);
+      backdrop-filter: blur(18px);
+    }
+    .nav-inner { min-height: 68px; display: flex; align-items: center; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 11px; text-decoration: none; font-weight: 800; letter-spacing: .07em; }
+    .mark {
+      width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+      color: #04101a; font-weight: 950; background: linear-gradient(135deg, var(--cyan), var(--blue));
+      box-shadow: 0 0 30px rgba(101,220,255,.24);
+    }
+    .brand small { display: block; color: var(--muted); font-size: 10px; letter-spacing: .15em; font-weight: 700; }
+    .nav-links { margin-left: auto; display: flex; gap: 18px; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 13px; }
+    .nav-links a:hover { color: var(--text); }
+    .hero { padding: 96px 0 66px; position: relative; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 8px; color: var(--cyan); font-size: 12px; letter-spacing: .13em; font-weight: 800; text-transform: uppercase; }
+    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 18px var(--green); }
+    h1 { max-width: 900px; margin: 18px 0 20px; font-size: clamp(43px, 8vw, 84px); line-height: .98; letter-spacing: -.05em; }
+    .gradient { background: linear-gradient(90deg, var(--cyan), #b6d6ff 58%, #8c9cff); -webkit-background-clip: text; color: transparent; }
+    .lead { max-width: 720px; margin: 0; color: #b6c5dd; font-size: clamp(18px, 2.5vw, 23px); }
+    .actions { display: flex; flex-wrap: wrap; gap: 11px; margin-top: 30px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      min-height: 46px; padding: 0 17px; border-radius: 11px; border: 1px solid var(--line);
+      text-decoration: none; font-weight: 750; background: #0d1828;
+    }
+    .btn.primary { color: #04101a; border-color: transparent; background: linear-gradient(135deg, var(--cyan), #86aaff); }
+    .btn:hover { transform: translateY(-1px); border-color: #47688f; }
+    .notice { margin-top: 34px; max-width: 780px; padding: 14px 16px; border: 1px solid rgba(244,202,97,.28); border-radius: 12px; background: rgba(244,202,97,.06); color: #d9c991; }
+    .grid { display: grid; gap: 15px; }
+    .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 54px; }
+    .card { border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(180deg, rgba(15,27,44,.94), rgba(9,17,29,.90)); box-shadow: var(--shadow); }
+    .metric { padding: 18px; }
+    .metric span { display: block; color: var(--muted); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+    .metric strong { display: block; margin-top: 7px; font-size: 21px; }
+    section { padding: 66px 0; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+    .section-head h2 { margin: 0; font-size: clamp(30px, 5vw, 48px); letter-spacing: -.035em; }
+    .section-head p { max-width: 560px; margin: 0; color: var(--muted); }
+    .features { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .feature { padding: 22px; min-height: 190px; }
+    .feature .num { color: var(--cyan); font-size: 12px; font-weight: 850; letter-spacing: .1em; }
+    .feature h3 { margin: 14px 0 8px; font-size: 19px; }
+    .feature p { margin: 0; color: var(--muted); }
+    .pipeline { padding: 25px; overflow: hidden; }
+    .pipeline-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .stage { padding: 9px 11px; border-radius: 999px; border: 1px solid var(--line); background: #091423; color: #bfd0e8; font-size: 12px; font-weight: 750; }
+    .stage.active { color: #04101a; border-color: transparent; background: linear-gradient(135deg, var(--cyan), #98b2ff); }
+    .beta-grid { grid-template-columns: 1.1fr .9fr; align-items: stretch; }
+    .beta-copy, .rules { padding: 26px; }
+    .beta-copy h3, .rules h3 { margin-top: 0; font-size: 24px; }
+    .beta-copy p, .rules p { color: var(--muted); }
+    .rules ul { margin: 16px 0 0; padding: 0; list-style: none; display: grid; gap: 11px; }
+    .rules li { display: flex; gap: 10px; color: #c7d5e9; }
+    .tick { color: var(--green); font-weight: 900; }
+    .footer { padding: 34px 0 48px; border-top: 1px solid rgba(36,54,79,.7); color: var(--muted); font-size: 13px; }
+    .footer-inner { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+    @media (max-width: 860px) {
+      .metrics, .features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .beta-grid { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+    }
+    @media (max-width: 560px) {
+      .hero { padding-top: 72px; }
+      .metrics, .features { grid-template-columns: 1fr; }
+      .section-head { align-items: start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top" aria-label="AURORA GRID home">
+        <span class="mark">A</span>
+        <span>AURORA GRID<small>INTEL TRIPWIRE</small></span>
+      </a>
+      <div class="nav-links">
+        <a href="#capabilities">Capabilities</a>
+        <a href="#method">Method</a>
+        <a href="#beta">Private beta</a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="top">
+    <header class="hero">
+      <div class="wrap">
+        <div class="eyebrow"><span class="pulse"></span> Controlled friends beta</div>
+        <h1>See the signal.<br><span class="gradient">Verify the evidence.</span></h1>
+        <p class="lead">AURORA GRID is an evidence-first open-source intelligence and decision-support system for monitoring events, testing claims, mapping constraints, and producing auditable assessments.</p>
+        <div class="actions">
+          <a class="btn primary" href="#beta">Beta overview</a>
+          <a class="btn" href="https://github.com/hr185882-creator/intel-tripwire" rel="noreferrer">View public repository</a>
+        </div>
+        <div class="notice"><strong>Invite-only:</strong> application access is distributed privately. This page is a product overview, not the operational console.</div>
+
+        <div class="grid metrics" aria-label="Beta status">
+          <div class="card metric"><span>Release stage</span><strong>Private beta</strong></div>
+          <div class="card metric"><span>Access model</span><strong>Named testers</strong></div>
+          <div class="card metric"><span>Analysis model</span><strong>Evidence-first</strong></div>
+          <div class="card metric"><span>Current gate</span><strong>Controlled launch</strong></div>
+        </div>
+      </div>
+    </header>
+
+    <section id="capabilities">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Operational capabilities</h2>
+          <p>The beta combines source collection, provenance, verification, geographic context, operational health, and analyst workflows in one environment.</p>
+        </div>
+        <div class="grid features">
+          <article class="card feature"><span class="num">01</span><h3>Global operating picture</h3><p>Monitor incidents, transport, infrastructure, markets, and source health from a unified interface.</p></article>
+          <article class="card feature"><span class="num">02</span><h3>Evidence and provenance</h3><p>Separate source records, claims, inferences, forecasts, and unresolved uncertainty instead of collapsing them into one narrative.</p></article>
+          <article class="card feature"><span class="num">03</span><h3>Geographic intelligence</h3><p>Inspect event clusters, strategic chokepoints, infrastructure exposure, and route-level operational context.</p></article>
+          <article class="card feature"><span class="num">04</span><h3>Constraint forecasting</h3><p>Translate evidence into binding constraints, gates, triggers, probabilities, and concrete action states.</p></article>
+          <article class="card feature"><span class="num">05</span><h3>Replay and audit trail</h3><p>Preserve observations, assessments, changes, and analyst notes for later review and accountability.</p></article>
+          <article class="card feature"><span class="num">06</span><h3>Analyst workspace</h3><p>Use watchlists, alerts, cases, incident timelines, source-health views, and operational readiness checks.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="method">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>From signal to decision</h2>
+          <p>The workflow is designed to resist rumor stacking, false precision, source laundering, and premature confidence.</p>
+        </div>
+        <div class="card pipeline">
+          <div class="pipeline-row" aria-label="AURORA workflow">
+            <span class="stage active">ROUTER</span><span class="stage">SCOUT</span><span class="stage">SOURCEGRID</span><span class="stage">K-ALIGN</span><span class="stage">IPR</span><span class="stage">BLACKGLASS</span><span class="stage">CRF</span><span class="stage">COMMAND</span><span class="stage">RECORD LOCK</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="beta">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>What friends are testing</h2>
+          <p>The objective is not promotional approval. It is finding defects, unclear workflows, weak alerts, missing context, and incorrect assumptions.</p>
+        </div>
+        <div class="grid beta-grid">
+          <article class="card beta-copy">
+            <h3>Private beta brief</h3>
+            <p>Testers receive separate access credentials and evaluate the product as an operational tool. The beta remains a work in progress: individual sources can degrade, coverage varies by domain, and every assessment should retain explicit uncertainty.</p>
+            <p><strong>Access instructions are sent directly by the operator.</strong> Do not forward credentials, API tokens, screenshots containing sensitive data, or internal beta links.</p>
+          </article>
+          <aside class="card rules">
+            <h3>Tester rules</h3>
+            <ul>
+              <li><span class="tick">✓</span><span>Report broken pages, stale data, and misleading status indicators.</span></li>
+              <li><span class="tick">✓</span><span>Flag false positives and important events the system missed.</span></li>
+              <li><span class="tick">✓</span><span>Distinguish verified facts from interpretation in feedback.</span></li>
+              <li><span class="tick">✓</span><span>Do not use the beta as the sole basis for safety-critical decisions.</span></li>
+            </ul>
+          </aside>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>AURORA GRID / Intel Tripwire</span>
+      <span>Private beta · Evidence before narrative</span>
+    </div>
+  </footer>
+</body>
+</html>
