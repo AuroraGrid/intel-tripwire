@@ -2,3 +2,4 @@ gunicorn>=23,<24
 psycopg[binary]>=3.2,<4
 Pillow>=12.3,<13
 websocket-client>=1.8,<2
+certifi>=2024.0.0

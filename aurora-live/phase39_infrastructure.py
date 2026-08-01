@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import ssl
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -45,10 +47,35 @@ def _is_postgres(target: str) -> bool:
     return target.startswith(("postgresql://", "postgres://"))
 
 
+def _ssl_contexts() -> list[ssl.SSLContext]:
+    """Prefer system trust, then certifi when available (Windows/corporate MITM hosts)."""
+    contexts: list[ssl.SSLContext] = [ssl.create_default_context()]
+    try:
+        import certifi
+
+        contexts.append(ssl.create_default_context(cafile=certifi.where()))
+    except Exception:
+        pass
+    return contexts
+
+
 def _request(url: str, *, timeout: int = 30, accept: str = "application/json") -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": accept})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read()
+    errors: list[str] = []
+    for context in _ssl_contexts():
+        try:
+            with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+                return response.read()
+        except (ssl.SSLError, urllib.error.URLError) as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+            continue
+    # Final attempt without an explicit context preserves historical behavior.
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read()
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {exc}")
+        raise RuntimeError(f"HTTP request failed for {url}; attempts: {'; '.join(errors)}") from exc
 
 
 def _json(url: str, *, timeout: int = 30) -> Any:
@@ -494,11 +521,33 @@ class OFACSDNAdapter(BaseAdapter):
     name = "ofac-sdn"
     layer = "sanctions"
     endpoint = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.XML"
+    # Secondary official mirror used when the primary host fails TLS verification on
+    # some operator networks (self-signed interceptors / incomplete CA stores).
+    fallback_endpoints = (
+        "https://www.treasury.gov/ofac/downloads/sdn.xml",
+    )
     license_note = "Official U.S. Treasury OFAC sanctions-list data; screening and legal interpretation remain the user's responsibility."
     completeness_note = "The SDN list is one OFAC product and does not represent every sanctions regime or legal restriction worldwide."
 
     def fetch(self, timeout: int = 45) -> list[InfrastructureObservation]:
-        root = ET.fromstring(_request(self.endpoint, timeout=timeout, accept="application/xml,text/xml"))
+        endpoints = (self.endpoint, *self.fallback_endpoints)
+        last_error: Exception | None = None
+        body = b""
+        source_url = self.endpoint
+        for url in endpoints:
+            try:
+                body = _request(url, timeout=timeout, accept="application/xml,text/xml,*/*")
+                if body and body.lstrip().startswith(b"<"):
+                    source_url = url
+                    break
+                last_error = RuntimeError(f"empty or non-XML body from {url}")
+            except Exception as exc:  # noqa: BLE001 - try next official endpoint
+                last_error = exc
+                continue
+        else:
+            raise RuntimeError(f"OFAC SDN fetch failed across endpoints: {last_error}")
+
+        root = ET.fromstring(body)
         observed_at = _now()
         output = []
         for entry in [node for node in root.iter() if _local(node.tag) == "sdnEntry"][:1000]:
@@ -513,9 +562,11 @@ class OFACSDNAdapter(BaseAdapter):
             output.append(InfrastructureObservation(
                 self.layer, self.name, identifier, observed_at, observed_at, "LEGAL", title,
                 f"Type: {entity_type or 'unspecified'}; programs: {', '.join(programs[:20])}",
-                self.endpoint, {"uid": identifier, "first_name": first, "last_name": last, "type": entity_type, "programs": programs},
-                {"provider": "U.S. Treasury Office of Foreign Assets Control", "source": self.endpoint, "license_note": self.license_note},
+                source_url, {"uid": identifier, "first_name": first, "last_name": last, "type": entity_type, "programs": programs},
+                {"provider": "U.S. Treasury Office of Foreign Assets Control", "source": source_url, "license_note": self.license_note},
             ))
+        if not output:
+            raise RuntimeError("OFAC SDN XML parsed but contained no sdnEntry nodes")
         return output
 
 
