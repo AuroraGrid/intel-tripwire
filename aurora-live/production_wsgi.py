@@ -51,10 +51,12 @@ class ProductionApplication:
         now = datetime.now(timezone.utc)
         cutoff = (now - timedelta(seconds=max(1, ingestion_stale))).isoformat().replace("+00:00", "Z")
         grace_cutoff = (now - timedelta(seconds=max(1, ingestion_grace))).isoformat().replace("+00:00", "Z")
-        fresh_success = last_status == "success" and last_finished >= cutoff
+        fresh_success = last_status == "success" and bool(last_finished) and last_finished >= cutoff
         healthy_workers = [w for w in (workers.get("workers") or []) if w.get("healthy")]
         youngest_start = min((str(w.get("started_at") or "") for w in healthy_workers), default="")
-        in_grace = bool(healthy_workers) and (not last_finished) and youngest_start >= grace_cutoff
+        # Grace covers cold start and post-restart windows where a prior success is stale
+        # or a previous lease left the job mid-run until the new worker finishes.
+        in_grace = bool(healthy_workers) and bool(youngest_start) and youngest_start >= grace_cutoff and not fresh_success
         checks["ingestion"].update({
             "job": "source_refresh",
             "last_status": last_status or None,
