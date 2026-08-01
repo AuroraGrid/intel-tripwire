@@ -75,7 +75,7 @@ class Phase41Application(Phase40Application):
                     rid,
                 )
 
-            if path in {"/.well-known/aurora-product.json", "/api/public/product/capabilities"} and method == "GET":
+            if path in {".well-known/aurora-product.json", "/api/public/product/capabilities"} and method == "GET":
                 payload = self._product_manifest()
                 if path.startswith("/.well-known/"):
                     return self._json_document(environ, start_response, payload, rid)
