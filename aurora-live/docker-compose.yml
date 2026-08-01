@@ -60,6 +60,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      # Dedicated layer services below own Phase 38-40; do not double-start them here.
+      AURORA_START_LAYER_WORKERS: "0"
       DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
       AURORA_WEBHOOK_SECRET: ${AURORA_WEBHOOK_SECRET:?set AURORA_WEBHOOK_SECRET}
       AURORA_REFRESH_INTERVAL_SECONDS: ${AURORA_REFRESH_INTERVAL_SECONDS:-300}

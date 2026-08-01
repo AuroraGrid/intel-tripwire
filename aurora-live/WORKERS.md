@@ -34,13 +34,20 @@ Docker Compose starts `aurora-worker` automatically:
 docker compose up --build
 ```
 
-Compose also starts Phase 38–40 layer workers:
+## Phase 38–40 (transport / infrastructure / markets)
 
-- `aurora-transport-worker` → `phase38_worker.py --loop`
-- `aurora-infrastructure-worker` → `phase39_worker.py --loop`
-- `aurora-markets-worker` → `phase40_worker.py --loop`
+These screens go stale unless dedicated ingestion runs. Two supported modes:
 
-Local beta launches the same set via `scripts/start_layer_workers.py` (disable with `AURORA_START_LAYER_WORKERS=0`).
+1. **Local / single-process (default):** `python release_worker.py` starts Phase 22 **and** spawns Phase 38–40 layer workers (`scripts/start_layer_workers.py`). Disable with `AURORA_START_LAYER_WORKERS=0`.
+2. **Compose:** dedicated services own the layers (`aurora-transport-worker`, `aurora-infrastructure-worker`, `aurora-markets-worker`). Compose sets `AURORA_START_LAYER_WORKERS=0` on `aurora-worker` so they are not double-started.
+
+Manual one-shot (optional):
+
+```bash
+python phase38_worker.py --loop
+python phase39_worker.py --loop --interval 300
+python phase40_worker.py --loop --interval 300
+```
 
 Readiness (`GET /api/platform/ready`) requires a healthy core worker heartbeat and a recent successful `source_refresh` job (cold-start grace via `AURORA_INGESTION_GRACE_SECONDS`).
 

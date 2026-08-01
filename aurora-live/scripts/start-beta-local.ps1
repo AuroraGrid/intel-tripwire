@@ -40,21 +40,14 @@ Write-Host "Running release_check --allow-local..."
 & $py release_check.py --env .env --allow-local
 if ($LASTEXITCODE -ne 0) { throw "release_check failed" }
 
-Write-Host "Starting release_worker..."
+# release_worker runs Phase 22 core + Phase 38-40 layer workers by default.
+# Set AURORA_START_LAYER_WORKERS=0 to run only the legacy Phase 22 worker.
+if (-not $env:AURORA_START_LAYER_WORKERS) { $env:AURORA_START_LAYER_WORKERS = "1" }
+Write-Host "Starting release_worker (core + Phase 38-40 layers; AURORA_START_LAYER_WORKERS=$env:AURORA_START_LAYER_WORKERS)..."
 $worker = Start-Process -FilePath $py -ArgumentList "release_worker.py" -WorkingDirectory $Root -WindowStyle Minimized -PassThru
 $worker.Id | Set-Content -Path (Join-Path $Root "var\beta-worker.pid") -Encoding ascii
 Write-Host "release_worker PID=$($worker.Id) (saved var\beta-worker.pid)"
 
-# Phase 38-40 layer workers (transport / infrastructure / markets).
-$startLayers = if ($env:AURORA_START_LAYER_WORKERS) { $env:AURORA_START_LAYER_WORKERS } else { "1" }
-if ($startLayers -match '^(1|true|yes|on)$') {
-  Write-Host "Starting Phase 38-40 layer workers..."
-  $layers = Start-Process -FilePath $py -ArgumentList "scripts\start_layer_workers.py" -WorkingDirectory $Root -WindowStyle Minimized -PassThru
-  $layers.Id | Set-Content -Path (Join-Path $Root "var\beta-layer-workers.pid") -Encoding ascii
-  Write-Host "layer_workers PID=$($layers.Id) (saved var\beta-layer-workers.pid)"
-} else {
-  Write-Host "Layer workers skipped (AURORA_START_LAYER_WORKERS=$startLayers)"
-}
 
 Write-Host "Starting platform on http://127.0.0.1:8090 (loopback only)..."
 Write-Host "Create admin (bootstrap secret REQUIRED):"

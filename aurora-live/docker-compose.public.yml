@@ -59,6 +59,8 @@ services:
         condition: service_healthy
     environment:
       <<: *aurora-environment
+      # Dedicated layer services own Phase 38-40; avoid duplicate child processes.
+      AURORA_START_LAYER_WORKERS: "0"
       AURORA_REFRESH_INTERVAL_SECONDS: ${AURORA_REFRESH_INTERVAL_SECONDS:-300}
       AURORA_MEDIA_INTERVAL_SECONDS: ${AURORA_MEDIA_INTERVAL_SECONDS:-10}
       AURORA_OPERATING_INTERVAL_SECONDS: ${AURORA_OPERATING_INTERVAL_SECONDS:-10}

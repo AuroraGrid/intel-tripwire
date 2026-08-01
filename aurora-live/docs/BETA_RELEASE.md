@@ -19,9 +19,9 @@ Private **local beta** is the supported first release shape on Windows without D
 | --- | --- |
 | `release_check.py --allow-local` | required before start |
 | Platform | `http://127.0.0.1:8090` (Waitress / `release_wsgi`) |
-| Worker | `release_worker.py` heartbeat required for readiness |
+| Worker | `release_worker.py` (Phase 22 core **plus** Phase 38–40 layer workers by default) |
 | Admin | `POST /api/platform/users` with role `admin` **and** `X-Bootstrap-Secret` |
-| Stack data plane | phase38/39/40 workers started by default via `scripts/start_layer_workers.py` (`AURORA_START_LAYER_WORKERS=0` to disable) |
+| Stack data plane | transport / infrastructure / markets refresh via embedded layer workers (`AURORA_START_LAYER_WORKERS=0` to disable; Compose uses separate services) |
 | Remote beta gate | eight fixes required (bootstrap, time-series, ops auth, redundancy, layer workers, durable limits/push, webhook SSRF, readiness+ingestion) |
 
 ## Start (Windows)
