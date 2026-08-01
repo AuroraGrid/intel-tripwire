@@ -86,6 +86,6 @@ No capability is marked live solely because a placeholder, mock, fixture, UI lab
 ## Contact
 
 - Hasan Raza Kazmi
-- Email: Grindwireproject@gmail.com
-- Location: Sargodha, Pakistan
+- Email: Kazmihasan624@gmail.com 
+- Location: Washington DC
 - Work preference: fully remote
