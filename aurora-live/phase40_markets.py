@@ -767,24 +767,28 @@ class FredEconomicAdapter(BaseAdapter):
                 value = float(raw)
             except ValueError:
                 continue
+            series_date = str(row.get("date") or "")
             output.append(
                 MarketObservation(
                     self.layer,
                     self.name,
                     series_id,
                     observed_at,
-                    str(row.get("date") or observed_at),
+                    # Use retrieval time for operational freshness; series publication
+                    # date is delayed by design for macroeconomic indicators.
+                    observed_at,
                     series_id,
                     f"FRED series {series_id}",
                     value,
                     "USD",
                     "index_or_rate",
                     f"https://fred.stlouisfed.org/series/{series_id}",
-                    row,
+                    {**row, "series_date": series_date},
                     {
                         "provider": "Federal Reserve Bank of St. Louis FRED",
                         "source": self.endpoint,
                         "series_id": series_id,
+                        "series_date": series_date,
                         "credential_env": self.env_key,
                         "credential_committed": False,
                         "license_note": self.license_note,
@@ -817,6 +821,39 @@ class ConfiguredEnergyAdapter(BaseAdapter):
             "credentials_never_returned": True,
         }
 
+    @staticmethod
+    def _rows_from_payload(data: Any) -> list[Any]:
+        if isinstance(data, list):
+            return data
+        if not isinstance(data, dict):
+            return []
+        # Common generic envelopes
+        for key in ("data", "items", "series", "results"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+        # EIA Open Data API v2: {"response": {"data": [...]}}
+        response = data.get("response")
+        if isinstance(response, dict):
+            nested = response.get("data")
+            if isinstance(nested, list):
+                return nested
+        return []
+
+    @staticmethod
+    def _numeric(raw: Any) -> float | None:
+        if isinstance(raw, (int, float)):
+            return float(raw)
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text or text in {".", "NA", "N/A", "-"}:
+                return None
+            try:
+                return float(text)
+            except ValueError:
+                return None
+        return None
+
     def fetch(self, timeout: int = 30) -> list[MarketObservation]:
         url = str(os.getenv(self.url_env) or "").strip()
         key = str(os.getenv(self.api_key_env) or "").strip()
@@ -825,39 +862,56 @@ class ConfiguredEnergyAdapter(BaseAdapter):
         if "{api_key}" in url:
             url = url.replace("{api_key}", urllib.parse.quote(key, safe=""))
         data = _json(url, timeout=timeout)
-        rows = data if isinstance(data, list) else (data.get("data") or data.get("items") or data.get("series") or [])
+        rows = self._rows_from_payload(data)
         observed_at = _now()
         output: list[MarketObservation] = []
         for index, item in enumerate(rows[:200]):
             if not isinstance(item, dict):
                 continue
-            identifier = str(item.get("id") or item.get("symbol") or item.get("series_id") or index)
-            title = str(item.get("title") or item.get("name") or item.get("symbol") or f"energy {identifier}")
+            identifier = str(
+                item.get("id")
+                or item.get("series")
+                or item.get("symbol")
+                or item.get("series_id")
+                or index
+            )
+            title = str(
+                item.get("title")
+                or item.get("series-description")
+                or item.get("name")
+                or item.get("product-name")
+                or item.get("symbol")
+                or f"energy {identifier}"
+            )
             raw = item.get("value") if item.get("value") is not None else item.get("price")
-            value = float(raw) if isinstance(raw, (int, float)) else None
+            value = self._numeric(raw)
+            period = str(item.get("period") or item.get("event_time") or item.get("date") or "")
             output.append(
                 MarketObservation(
                     self.layer,
                     self.name,
                     identifier,
                     observed_at,
-                    str(item.get("event_time") or item.get("date") or observed_at),
-                    str(item.get("symbol") or identifier)[:80],
+                    observed_at,
+                    str(item.get("symbol") or item.get("series") or identifier)[:80],
                     title[:500],
                     value,
                     str(item.get("currency") or "USD"),
-                    str(item.get("unit") or "price"),
+                    str(item.get("unit") or item.get("units") or "price"),
                     url,
                     item,
                     {
                         "provider": self.name,
                         "source": self.url_env,
+                        "period": period,
                         "credential_env": self.api_key_env,
                         "credential_committed": False,
                         "license_note": str(os.getenv(self.license_env) or self.license_note),
                     },
                 )
             )
+        if not output:
+            raise RuntimeError("provider returned no valid observations")
         return output
 
 
