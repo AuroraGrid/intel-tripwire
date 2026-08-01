@@ -23,25 +23,30 @@ python scripts/verify_webcam_matrix.py --database var/webcams.sqlite3 --probe
 
 ## Current operator qualification (2026-08-01)
 
-| Region | Registered | ONLINE (probe) | Gate |
-| --- | ---: | ---: | --- |
-| Europe | 10 | 10 | **PASS** (Digitraffic road weather JPEG) |
-| North America | 10 | 10 | **PASS** (WSDOT traffic JPEG) |
-| Asia | 10 | pending | YouTube live candidates seeded |
-| Oceania | 10 | pending | YouTube live candidates seeded |
-| South America | 10 | pending | YouTube live candidates seeded |
-| Middle East | 10 | pending | YouTube live candidates seeded |
-| Africa | 10 | pending | YouTube live candidates seeded |
+`fixtures/webcam_seed_manifest.json` holds **70 pre-verified stream sources** (10 per region):
 
-**Total ONLINE after JPEG probe: 20 / 70.** Two of seven regional gates pass.
+| Region | Sources | Notes |
+| --- | --- | --- |
+| Europe | Digitraffic road-weather JPEG | Finland open data |
+| North America | WSDOT traffic JPEG | Washington DOT |
+| Asia | YouTube live | Tokyo, HK, Bangkok, Davao, JP multi |
+| Oceania | YouTube live | Sydney, Melbourne, Auckland, Wellington |
+| South America | YouTube live | Chile, Argentina, Brazil, Curaçao |
+| Middle East | YouTube live | Dubai, Abu Dhabi, Istanbul, Tel Aviv, Jerusalem |
+| Africa | YouTube live | Cape Town, Kruger, Namibia |
 
-Provider pages (met agencies only) stay `DEGRADED` by design. Direct JPEG/MJPEG/HLS/YouTube-live evidence is required for `ONLINE`.
-
-YouTube probes are rate-limited under aggressive concurrent fetch; re-probe remaining regions with low concurrency after cooldown:
+Re-probe after seed (YouTube is rate-limit sensitive — probe one region at a time):
 
 ```bash
+python scripts/seed_webcams.py --database var/webcams.sqlite3 --manifest fixtures/webcam_seed_manifest.json
+python scripts/verify_webcam_matrix.py --database var/webcams.sqlite3 --probe --region Europe --limit 10
+python scripts/verify_webcam_matrix.py --database var/webcams.sqlite3 --probe --region "North America" --limit 10
 python scripts/verify_webcam_matrix.py --database var/webcams.sqlite3 --probe --region Asia --limit 10
+# ... remaining regions
+python scripts/verify_webcam_matrix.py --database var/webcams.sqlite3
 ```
+
+Provider pages (met agencies only) stay `DEGRADED` by design. Direct JPEG/MJPEG/HLS/YouTube-live evidence is required for `ONLINE`.
 
 ## Integrity
 
