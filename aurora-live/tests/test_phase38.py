@@ -163,6 +163,11 @@ class Phase38Tests(unittest.TestCase):
             self.assertEqual(rows[0]["provenance"]["license"], "test-only")
             self.assertEqual(len(runs), 1)
             self.assertTrue(runs[0]["successful"])
+            # Close DB connections to avoid Windows file locks during tempdir cleanup
+            first.close()
+            second.close()
+            import gc
+            gc.collect()
 
     def test_duplicate_external_id_is_idempotent(self):
         store = TransportStore(":memory:")

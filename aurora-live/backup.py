@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import gc
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,8 +36,42 @@ def manifest(path: Path, backend: str, source: str):
 
 def backup_sqlite(source: str, output: Path):
     output.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(source) as src, sqlite3.connect(output) as dst:
-        src.backup(dst)
+    # If the source is a regular file path and not an active connection/URI, a copy is sufficient
+    # and avoids platform-specific locking issues on Windows.
+    try:
+        src_path = Path(source)
+    except Exception:
+        src_path = None
+    if src_path and src_path.exists():
+        # Try opening the source read-only via URI to avoid locking issues on Windows.
+        try:
+            src = sqlite3.connect(f"file:{src_path.as_posix()}?mode=ro", uri=True)
+            try:
+                dst = sqlite3.connect(output)
+                try:
+                    src.backup(dst)
+                    dst.commit()
+                finally:
+                    dst.close()
+            finally:
+                src.close()
+        except Exception:
+            # Fall back to copying the file if backup via readonly URI fails.
+            shutil.copy2(src_path, output)
+    else:
+        # Fallback to the SQLite online backup API when source is a URI or not a simple file.
+        src = sqlite3.connect(source)
+        try:
+            dst = sqlite3.connect(output)
+            try:
+                src.backup(dst)
+                dst.commit()
+            finally:
+                dst.close()
+        finally:
+            src.close()
+    # Force garbage collection to help release any lingering file handles on Windows
+    gc.collect()
     data, manifest_path = manifest(output, "sqlite", source)
     log_event("backup_created", backend="sqlite", output=str(output), sha256=data["sha256"])
     return data, manifest_path
@@ -63,10 +98,15 @@ def verify_sqlite_restore(path: Path):
     with tempfile.TemporaryDirectory() as directory:
         restored = Path(directory) / "restored.db"
         shutil.copy2(path, restored)
-        with sqlite3.connect(restored) as connection:
-            result = connection.execute("PRAGMA integrity_check").fetchone()[0]
+        # Use explicit connect/close and force GC to avoid lingering file handles on Windows
+        conn = sqlite3.connect(f"file:{restored.as_posix()}?mode=ro", uri=True)
+        try:
+            result = conn.execute("PRAGMA integrity_check").fetchone()[0]
             if result != "ok": raise ValueError(f"SQLite integrity check failed: {result}")
-            tables = connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
+            tables = conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
+        finally:
+            conn.close()
+        gc.collect()
     log_event("restore_verified", backend="sqlite", backup=str(path), tables=tables)
     return {"verified": True, "backend": "sqlite", "tables": tables}
 
