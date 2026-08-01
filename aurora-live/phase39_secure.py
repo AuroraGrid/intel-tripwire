@@ -6,11 +6,13 @@ from typing import Any
 
 from phase39_infrastructure import (
     CISAKEVAdapter,
+    EIAPowerAdapter,
     EONETWildfireAdapter,
     FEMAGovernmentAlertsAdapter,
     InfrastructureCoordinator,
     InfrastructureObservation,
     NWSAlertsAdapter,
+    NWSPowerOutageAdapter,
     OFACSDNAdapter,
     RIPEBGPAdapter,
     _json,
@@ -97,20 +99,9 @@ class SecureInfrastructureCoordinator(InfrastructureCoordinator):
         self.adapters = [
             NWSAlertsAdapter(),
             EONETWildfireAdapter(),
-            SecureConfiguredJSONAdapter(
-                name="configured-official-outage-feed",
-                layer="outage",
-                url_env="AURORA_OUTAGE_FEED_URL",
-                license_env="AURORA_OUTAGE_FEED_LICENSE",
-            ),
+            NWSPowerOutageAdapter(),
             RIPEBGPAdapter(),
-            SecureConfiguredJSONAdapter(
-                name="configured-official-power-feed",
-                layer="power",
-                url_env="AURORA_POWER_FEED_URL",
-                license_env="AURORA_POWER_FEED_LICENSE",
-                api_key_env="AURORA_POWER_API_KEY",
-            ),
+            EIAPowerAdapter(),
             CISAKEVAdapter(),
             OFACSDNAdapter(),
             FEMAGovernmentAlertsAdapter(),
