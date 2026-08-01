@@ -12,4 +12,26 @@ on:
       - main
     paths:
       - "aurora-live/phase15_*.py"
-      - "aurora-live/release_wsgi
+      - "aurora-live/release_wsgi.py"
+      - "aurora-live/tests/test_phase15.py"
+      - ".github/workflows/phase15.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r aurora-live/requirements.txt
+      - run: python -m py_compile aurora-live/phase15_mesh.py aurora-live/phase15_complete.py aurora-live/release_wsgi.py
+      - run: python -m unittest discover -s aurora-live/tests -p "test_phase15.py" -v
