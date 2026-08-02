@@ -144,6 +144,21 @@ class Identity:
         self.audit(workspace_id, actor["id"], "token.issued", "api_token", token_id, metadata={"user_id": user_id, "expires_at": expires_at})
         return {"id": token_id, "user_id": user_id, "workspace_id": workspace_id, "name": str(name)[:80], "expires_at": expires_at, "created_at": stamp}, secret
 
+    def issue_session_secret(self, user_id: str, workspace_id: str, name: str = "password-session"):
+        """Issue an API token without admin actor — used by shared password login."""
+        with self.store.db() as c:
+            if not c.execute("SELECT 1 FROM memberships WHERE user_id=? AND workspace_id=?", (user_id, workspace_id)).fetchone():
+                raise KeyError("membership not found")
+        secret, stamp = secrets.token_urlsafe(32), now()
+        token_id = sid("api-token", user_id, workspace_id, stamp, secrets.token_hex(4))
+        with self.store.db() as c:
+            c.execute(
+                "INSERT INTO api_tokens(id,user_id,workspace_id,name,token_hash,expires_at,created_at) VALUES(?,?,?,?,?,?,?)",
+                (token_id, user_id, workspace_id, str(name)[:80], hashlib.sha256(secret.encode()).hexdigest(), None, stamp),
+            )
+        self.audit(workspace_id, user_id, "token.issued", "api_token", token_id, metadata={"name": name, "via": "password_login"})
+        return secret
+
     def tokens(self, actor):
         self.require(actor, "admin")
         with self.store.db() as c: rows = c.execute("SELECT id,user_id,workspace_id,name,expires_at,revoked_at,last_used_at,created_at FROM api_tokens WHERE workspace_id=? ORDER BY created_at DESC", (actor["workspace_id"],)).fetchall()

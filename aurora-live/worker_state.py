@@ -112,7 +112,20 @@ class WorkerState:
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max(1, int(stale_after_seconds)))).isoformat().replace("+00:00", "Z")
         with self.store.db() as connection:
             jobs = [dict(row) for row in connection.execute("SELECT * FROM worker_jobs ORDER BY name").fetchall()]
+            # Drop dead/restart leftovers so UI does not show 1/N after redeploys.
+            connection.execute(
+                "DELETE FROM worker_heartbeats WHERE heartbeat_at<? OR status IS NULL OR status<>?",
+                (cutoff, "running"),
+            )
             workers = [dict(row) for row in connection.execute("SELECT * FROM worker_heartbeats ORDER BY heartbeat_at DESC").fetchall()]
         for worker in workers:
-            worker["healthy"] = worker["heartbeat_at"] >= cutoff and worker["status"] == "running"
-        return {"jobs": jobs, "workers": workers, "healthy_workers": sum(1 for worker in workers if worker["healthy"])}
+            worker["healthy"] = str(worker.get("heartbeat_at") or "") >= cutoff and str(worker.get("status") or "") == "running"
+        healthy = sum(1 for worker in workers if worker["healthy"])
+        # total_workers is the active set after pruning — not historical process IDs
+        return {
+            "jobs": jobs,
+            "workers": workers,
+            "healthy_workers": healthy,
+            "total_workers": len(workers),
+            "active_workers": len(workers),
+        }

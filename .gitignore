@@ -1,0 +1,7 @@
+
+# local beta / tunnels
+aurora-live/tools/*.log
+aurora-live/tools/*.exe
+aurora-live/tools/cloudflared*
+aurora-live/_fix_*.py
+aurora-live/var/

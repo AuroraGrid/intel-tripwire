@@ -75,20 +75,94 @@ class PlatformApplication:
         check=host.lower().strip()
         if check.startswith("[") and "]" in check:check=check[1:check.index("]")]
         elif check.count(":")==1:check=check.rsplit(":",1)[0]
-        if not check or ("*" not in self.allowed_hosts and check not in self.allowed_hosts):raise HTTPError(400,"invalid_host","request Host is not allowed")
+        if not check or not self._host_allowed(check):raise HTTPError(400,"invalid_host","request Host is not allowed")
         return f"{scheme}://{host}"
+    def _host_allowed(self, host):
+        if "*" in self.allowed_hosts or host in self.allowed_hosts:
+            return True
+        # Open beta / public VPS: allow any Host when open access is enabled
+        try:
+            if self.store.open_access_enabled():
+                return True
+        except Exception:
+            pass
+        # Friend-share tunnels: random.trycloudflare.com / random.loca.lt
+        for suffix, markers in (
+            (".trycloudflare.com", ("trycloudflare.com", "*.trycloudflare.com")),
+            (".loca.lt", ("loca.lt", "*.loca.lt")),
+            (".localtunnel.me", ("localtunnel.me", "*.localtunnel.me")),
+            (".vercel.app", ("vercel.app", "*.vercel.app")),
+            (".onrender.com", ("onrender.com", "*.onrender.com")),
+        ):
+            if host.endswith(suffix) and any(m in self.allowed_hosts for m in markers):
+                return True
+        if host.endswith(".onrender.com"):
+            return True
+        # Public IP:port (OCI free tier)
+        if host.replace(".", "").replace(":", "").isdigit() or (
+            host.count(".") == 3 and ":" in host
+        ):
+            return True
+        return False
     def cors_headers(self,e):
         origin=str(e.get("HTTP_ORIGIN") or "").strip(); headers=[("Vary","Origin")]
         if not origin:return headers
-        if origin==self.cors:return headers+[("Access-Control-Allow-Origin",origin)]
-        if self.cors=="*" and self.wildcard:return headers+[("Access-Control-Allow-Origin","*")]
+        cors=(self.cors or "").strip()
+        # Open beta / friend share: never block browser Origin from public tunnels.
+        open_access=False
+        try:open_access=self.store.open_access_enabled()
+        except Exception:open_access=False
+        host_part=origin.split("://",1)[-1].split("/",1)[0].lower()
+        tunnel_ok=(
+            host_part.endswith(".trycloudflare.com")
+            or host_part.endswith(".loca.lt")
+            or host_part.endswith(".localtunnel.me")
+            or host_part.endswith(".vercel.app")
+            or host_part in {"127.0.0.1:8090","localhost:8090"}
+            or host_part.startswith("127.0.0.1:")
+            or host_part.startswith("localhost:")
+        )
+        # Open beta / public IP hosting (OCI free tier): never block browser Origin.
+        if open_access or cors=="*":
+            return headers+[("Access-Control-Allow-Origin",origin),("Access-Control-Allow-Credentials","true")]
+        if open_access and tunnel_ok:
+            return headers+[("Access-Control-Allow-Origin",origin),("Access-Control-Allow-Credentials","true")]
+        if origin==cors:
+            return headers+[("Access-Control-Allow-Origin",origin)]
+        if self.wildcard and cors=="*":
+            return headers+[("Access-Control-Allow-Origin","*")]
+        # Configured tunnel wildcards in AURORA_CORS_ORIGIN (e.g. https://*.trycloudflare.com)
+        for suffix in (".trycloudflare.com",".loca.lt",".localtunnel.me",".vercel.app"):
+            if host_part.endswith(suffix) and (
+                suffix.lstrip(".") in cors or f"*{suffix}" in cors or cors.endswith(suffix) or "*.trycloudflare.com" in cors
+            ):
+                return headers+[("Access-Control-Allow-Origin",origin)]
+        if tunnel_ok and ("trycloudflare" in cors or "loca.lt" in cors or "*" in cors):
+            return headers+[("Access-Control-Allow-Origin",origin)]
         raise HTTPError(403,"cors_origin_denied","request Origin is not allowed")
     def security_headers(self,e,rid,cache="no-store"):
         return [("Cache-Control",cache),("X-Request-ID",rid),("X-Content-Type-Options","nosniff"),("X-Frame-Options","DENY"),("Referrer-Policy","no-referrer"),("Permissions-Policy","camera=(), microphone=(), geolocation=()"),("Cross-Origin-Opener-Policy","same-origin"),("Content-Security-Policy","default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"),*self.cors_headers(e)]
     def user(self,e):
-        auth=str(e.get("HTTP_AUTHORIZATION") or ""); token=auth[7:].strip() if auth.lower().startswith("bearer ") else ""; user=self.store.auth(token)
-        if not user:raise HTTPError(401,"unauthorized","valid bearer token required",[("WWW-Authenticate","Bearer")])
-        return user
+        auth=str(e.get("HTTP_AUTHORIZATION") or ""); token=auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        if token:
+            user=self.store.auth(token)
+            if user:return user
+        # Open beta: no bearer required — act as first workspace user.
+        if self.store.open_access_enabled():
+            row=self.store.first_workspace_user()
+            if row:
+                from identity import CURRENT_WORKSPACE
+                CURRENT_WORKSPACE.set(row["workspace_id"])
+                return {
+                    "id": row["id"],
+                    "email": row["email"],
+                    "role": "admin" if row.get("workspace_role") == "owner" else row.get("role"),
+                    "workspace_id": row["workspace_id"],
+                    "workspace_role": row.get("workspace_role"),
+                    "permissions": self.store.identity.permissions(row.get("workspace_role") or "admin"),
+                    "open_access": True,
+                }
+        raise HTTPError(401,"unauthorized","valid bearer token required",[("WWW-Authenticate","Bearer")])
     @staticmethod
     def role(user,*roles):
         if user.get("role") not in roles:raise HTTPError(403,"forbidden","insufficient role")
@@ -105,7 +179,8 @@ class PlatformApplication:
         return value
     def rate_headers(self,e,method,path):
         if method not in {"POST","DELETE"}:return []
-        limit=self.auth_limit if path=="/api/platform/users" else self.write_limit; return self.limiter.check(("auth:" if path=="/api/platform/users" else "write:")+self.client_ip(e),limit,self.window) or []
+        limit=self.auth_limit if path in {"/api/platform/users","/api/platform/login"} else self.write_limit
+        return self.limiter.check(("auth:" if path in {"/api/platform/users","/api/platform/login"} else "write:")+self.client_ip(e),limit,self.window) or []
     @staticmethod
     def json(value):return json.dumps(value,ensure_ascii=False,separators=(",",":")).encode()
     def dispatch(self,e):
@@ -114,9 +189,22 @@ class PlatformApplication:
         if method=="GET" and path in {"/platform","/platform/"}:
             try:return 200,(STATIC/"platform.html").read_bytes(),"text/html; charset=utf-8","public, max-age=300",rate
             except FileNotFoundError:raise HTTPError(404,"not_found","dashboard not found")
-        if method=="GET" and path=="/api/platform/live":return 200,self.json({"status":"alive","time":now()}),"application/json; charset=utf-8","no-store",rate
+        if method=="GET" and path=="/api/platform/live":return 200,self.json({"status":"alive","time":now(),"open_access":self.store.open_access_enabled()}),"application/json; charset=utf-8","no-store",rate
         if method=="GET" and path in {"/api/platform/ready","/api/platform/health"}:
-            status="ready" if path.endswith("ready") else "ok"; return 200,self.json({"status":status,"time":now(),"users":self.store.users(),"database":self.store.backend}),"application/json; charset=utf-8","no-store",rate
+            status="ready" if path.endswith("ready") else "ok"; return 200,self.json({"status":status,"time":now(),"users":self.store.users(),"database":self.store.backend,"open_access":self.store.open_access_enabled()}),"application/json; charset=utf-8","no-store",rate
+        if method=="GET" and path=="/api/platform/open-session":
+            if not self.store.open_access_enabled():
+                raise HTTPError(403,"forbidden","open access disabled")
+            result=self.store.issue_open_session(name="open-access")
+            if not result:
+                raise HTTPError(503,"unavailable","no workspace user configured")
+            return 200,self.json(result),"application/json; charset=utf-8","no-store",rate
+        if method=="POST" and path=="/api/platform/login":
+            p=self.body(e)
+            result=self.store.login_with_password(p.get("password",""))
+            if not result:
+                raise HTTPError(401,"unauthorized","invalid password")
+            return 200,self.json(result),"application/json; charset=utf-8","no-store",rate
         if method=="POST" and path=="/api/platform/users":
             p=self.body(e); secret=os.getenv("AURORA_BOOTSTRAP_SECRET","") or ""; supplied=str(e.get("HTTP_X_BOOTSTRAP_SECRET") or "")
             # Bootstrap secret is required for every user create, including the first administrator.

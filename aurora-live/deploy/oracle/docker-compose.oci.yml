@@ -1,0 +1,124 @@
+# AURORA LIVE — Oracle Cloud Free Tier (single VM)
+# Usage on the VM:
+#   cd /opt/aurora-live
+#   docker compose -f deploy/oracle/docker-compose.oci.yml --env-file .env.oci up -d --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aurora
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - aurora-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurora -d aurora"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+
+  aurora-platform:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Public on the VM — put Caddy/nginx in front for HTTPS if you have a domain
+      - "0.0.0.0:8090:8090"
+    environment:
+      DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      AURORA_BOOTSTRAP_SECRET: ${AURORA_BOOTSTRAP_SECRET:?set AURORA_BOOTSTRAP_SECRET}
+      AURORA_WEBHOOK_SECRET: ${AURORA_WEBHOOK_SECRET:?set AURORA_WEBHOOK_SECRET}
+      AURORA_CORS_ORIGIN: ${AURORA_CORS_ORIGIN:-*}
+      AURORA_ALLOWED_HOSTS: ${AURORA_ALLOWED_HOSTS:-*}
+      AURORA_TRUSTED_PROXIES: ${AURORA_TRUSTED_PROXIES:-127.0.0.1/32,10.0.0.0/8,172.16.0.0/12}
+      AURORA_AUTH_RATE_LIMIT: ${AURORA_AUTH_RATE_LIMIT:-60}
+      AURORA_WRITE_RATE_LIMIT: ${AURORA_WRITE_RATE_LIMIT:-120}
+      AURORA_RATE_WINDOW_SECONDS: ${AURORA_RATE_WINDOW_SECONDS:-60}
+      AURORA_OPEN_ACCESS: ${AURORA_OPEN_ACCESS:-1}
+      AURORA_REQUIRE_WORKER: ${AURORA_REQUIRE_WORKER:-1}
+      AURORA_WORKER_STALE_SECONDS: ${AURORA_WORKER_STALE_SECONDS:-300}
+      AURORA_SOURCE_TIMEOUT_SECONDS: ${AURORA_SOURCE_TIMEOUT_SECONDS:-12}
+      GUNICORN_WORKERS: "1"
+      GUNICORN_TIMEOUT: "120"
+      AURORA_RUNTIME_PATH: /data/aurora-runtime.json
+      AURORA_GROQ_ENABLED: "false"
+    volumes:
+      - aurora-data:/data
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8090/api/platform/live',timeout=3)); assert d.get('status')=='alive'",
+        ]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 40s
+
+  aurora-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "release_worker.py"]
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AURORA_START_LAYER_WORKERS: "0"
+      DATABASE_URL: postgresql://aurora:${POSTGRES_PASSWORD}@postgres:5432/aurora
+      AURORA_WEBHOOK_SECRET: ${AURORA_WEBHOOK_SECRET:?set AURORA_WEBHOOK_SECRET}
+      AURORA_REFRESH_INTERVAL_SECONDS: ${AURORA_REFRESH_INTERVAL_SECONDS:-300}
+      AURORA_DELIVERY_INTERVAL_SECONDS: ${AURORA_DELIVERY_INTERVAL_SECONDS:-10}
+      AURORA_WORKER_LEASE_SECONDS: ${AURORA_WORKER_LEASE_SECONDS:-120}
+      AURORA_WORKER_FAILURE_RETRY_SECONDS: ${AURORA_WORKER_FAILURE_RETRY_SECONDS:-30}
+      AURORA_SOURCE_TIMEOUT_SECONDS: ${AURORA_SOURCE_TIMEOUT_SECONDS:-12}
+      AURORA_RUNTIME_PATH: /data/aurora-runtime.json
+      AURORA_GROQ_ENABLED: "false"
+    volumes:
+      - aurora-data:/data
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  # Optional HTTPS reverse proxy (use if you point a domain at this VM)
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["https"]
+    depends_on:
+      - aurora-platform
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    environment:
+      AURORA_DOMAIN: ${AURORA_DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  aurora-postgres:
+  aurora-data:
+  caddy-data:
+  caddy-config:

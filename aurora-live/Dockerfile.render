@@ -1,0 +1,29 @@
+# AURORA LIVE — Render free tier (web + embedded worker)
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    AURORA_QUIET=1 \
+    GUNICORN_WORKERS=1 \
+    GUNICORN_TIMEOUT=120 \
+    AURORA_OPEN_ACCESS=1 \
+    AURORA_REQUIRE_WORKER=0 \
+    AURORA_EMBED_WORKER=1 \
+    PORT=10000
+
+WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY . /app
+RUN mkdir -p /data \
+    && useradd --create-home --uid 10001 aurora \
+    && chown -R aurora:aurora /app /data \
+    && chmod +x /app/deploy/render/entrypoint.sh
+
+USER aurora
+EXPOSE 10000
+# /live is always light; /ready may flap on free cold starts
+HEALTHCHECK --interval=30s --timeout=8s --start-period=60s --retries=5 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:'+__import__('os').environ.get('PORT','10000')+'/api/platform/live',timeout=5)"
+
+CMD ["/app/deploy/render/entrypoint.sh"]

@@ -102,6 +102,64 @@ class Store:
     def auth(self, token):
         return self.identity.auth(token)
 
+    @staticmethod
+    def open_access_enabled() -> bool:
+        import os
+
+        return str(os.getenv("AURORA_OPEN_ACCESS") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def first_workspace_user(self):
+        with self.db() as connection:
+            row = connection.execute(
+                """SELECT u.id,u.email,u.role,m.workspace_id,m.role workspace_role
+                FROM users u JOIN memberships m ON m.user_id=u.id
+                ORDER BY u.created_at ASC LIMIT 1"""
+            ).fetchone()
+        return dict(row) if row else None
+
+    def issue_open_session(self, name: str = "open-access"):
+        """Issue a session token for the first workspace user (open beta mode)."""
+        user = self.first_workspace_user()
+        if not user:
+            return None
+        token = self.identity.issue_session_secret(user["id"], user["workspace_id"], name=name)
+        return {
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "role": "admin" if user.get("workspace_role") == "owner" else user.get("role"),
+                "workspace_id": user["workspace_id"],
+            },
+            "open_access": True,
+        }
+
+    def login_with_password(self, password: str):
+        """Password login, or free open-access session when AURORA_OPEN_ACCESS=1."""
+        import os
+        import secrets as _secrets
+
+        if self.open_access_enabled():
+            return self.issue_open_session(name="open-access")
+        expected = str(os.getenv("AURORA_FRIEND_PASSWORD") or "")
+        supplied = str(password or "")
+        if not expected or not supplied or not _secrets.compare_digest(supplied, expected):
+            return None
+        user = self.first_workspace_user()
+        if not user:
+            return None
+        token = self.identity.issue_session_secret(user["id"], user["workspace_id"], name="friend-password")
+        return {
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "role": "admin" if user.get("workspace_role") == "owner" else user.get("role"),
+                "workspace_id": user["workspace_id"],
+            },
+            "open_access": False,
+        }
+
     def users(self):
         with self.db() as connection:
             return connection.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -204,6 +262,15 @@ class Store:
             raise KeyError("incident not found")
         item = dict(row)
         item["payload"] = loads(item.pop("payload"), {})
+        # Surface geo fields for maps/list UIs (coords live in payload for most sources).
+        payload = item["payload"] if isinstance(item.get("payload"), dict) else {}
+        for key in ("latitude", "longitude", "location_name", "country", "what_changed", "why_it_matters",
+                    "strongest_counterargument", "falsifier", "k_align_status", "independent_origins",
+                    "score_components", "action_state"):
+            if item.get(key) in (None, "", "Geolocation pending") and payload.get(key) not in (None, ""):
+                item[key] = payload.get(key)
+        if item.get("action") in (None, "") and payload.get("action_state"):
+            item["action"] = payload.get("action_state")
         if with_evidence:
             with self.db() as connection:
                 rows = connection.execute("SELECT * FROM evidence WHERE incident_id=? AND workspace_id=? ORDER BY published_at DESC", (incident_id, workspace_id)).fetchall()

@@ -1,0 +1,7 @@
+# Used only with: docker compose --profile https
+# Set AURORA_DOMAIN in .env.oci (must resolve to this VM's public IP).
+
+{$AURORA_DOMAIN} {
+	encode gzip
+	reverse_proxy aurora-platform:8090
+}
