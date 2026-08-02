@@ -59,3 +59,14 @@ The UI has three operational surfaces:
 ## Safety boundary
 
 The product should not expose private addresses, non-public personal data, credentials, or real-time tracking of private individuals. Sensitive operational layers should be delayed, aggregated, or access-controlled where disclosure could create direct harm.
+
+## Security audit (full features)
+
+For a cybersecurity review of the **complete** stack (API, workers, Postgres, open-access modes):
+
+1. Read **`docs/SECURITY_AUDIT.md`** (attack surface, auth models, checklist).
+2. On a machine with Docker: `.\scripts\prepare-security-audit.ps1`  
+   - Safer lab (password, open access off): `.\scripts\prepare-security-audit.ps1 -LockedLab`
+3. UI at `http://127.0.0.1:8090/platform` (loopback only).
+
+Do **not** treat the public Render free demo as the primary audit environment (sleep/cold-start noise + open access = shared admin).
