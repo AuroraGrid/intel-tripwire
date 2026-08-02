@@ -1,0 +1,26 @@
+name: Diagnostic runner
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner info
+        run: |
+          echo "=== uname ==="
+          uname -a || hostname
+          echo "=== whoami ==="
+          whoami || id || echo "whoami unavailable"
+          echo "=== env sample ==="
+          env | sort | sed -n '1,200p' || set
+          echo "=== workspace files ==="
+          ls -la || dir
+
+      - name: Quick sleep
+        run: sleep 1
