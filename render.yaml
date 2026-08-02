@@ -1,0 +1,51 @@
+# Blueprint at repo root — Root Directory for services is aurora-live/
+# https://dashboard.render.com → New → Blueprint
+
+databases:
+  - name: aurora-db
+    plan: free
+    databaseName: aurora
+    user: aurora
+
+services:
+  - type: web
+    name: aurora-live
+    runtime: docker
+    plan: free
+    rootDir: aurora-live
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /api/platform/live
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aurora-db
+          property: connectionString
+      - key: AURORA_OPEN_ACCESS
+        value: "1"
+      - key: AURORA_REQUIRE_WORKER
+        value: "0"
+      - key: AURORA_EMBED_WORKER
+        value: "1"
+      - key: AURORA_CORS_ORIGIN
+        value: "*"
+      - key: AURORA_ALLOWED_HOSTS
+        value: "*"
+      - key: AURORA_TRUSTED_PROXIES
+        value: "0.0.0.0/0"
+      - key: GUNICORN_WORKERS
+        value: "1"
+      - key: GUNICORN_TIMEOUT
+        value: "120"
+      - key: AURORA_WORKER_STALE_SECONDS
+        value: "600"
+      - key: AURORA_SOURCE_TIMEOUT_SECONDS
+        value: "12"
+      - key: AURORA_GROQ_ENABLED
+        value: "false"
+      - key: AURORA_BOOTSTRAP_SECRET
+        generateValue: true
+      - key: AURORA_WEBHOOK_SECRET
+        generateValue: true
+      - key: AURORA_RUNTIME_PATH
+        value: "/data/aurora-runtime.json"
