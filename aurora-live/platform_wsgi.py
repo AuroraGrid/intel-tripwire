@@ -147,9 +147,9 @@ class PlatformApplication:
         if token:
             user=self.store.auth(token)
             if user:return user
-        # Open beta: no bearer required — act as first workspace user.
+        # Open beta: no bearer required — act as first workspace user (auto-create on empty DB).
         if self.store.open_access_enabled():
-            row=self.store.first_workspace_user()
+            row=self.store.ensure_open_access_user()
             if row:
                 from identity import CURRENT_WORKSPACE
                 CURRENT_WORKSPACE.set(row["workspace_id"])

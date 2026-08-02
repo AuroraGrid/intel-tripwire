@@ -117,9 +117,30 @@ class Store:
             ).fetchone()
         return dict(row) if row else None
 
+    def ensure_open_access_user(self):
+        """On a fresh free-host DB there are zero users — create a default owner."""
+        user = self.first_workspace_user()
+        if user:
+            return user
+        created, _token = self.create_user("open-beta@aurora.local", "admin")
+        with self.db() as connection:
+            row = connection.execute(
+                """SELECT u.id,u.email,u.role,m.workspace_id,m.role workspace_role
+                FROM users u JOIN memberships m ON m.user_id=u.id
+                WHERE u.id=? LIMIT 1""",
+                (created["id"],),
+            ).fetchone()
+        return dict(row) if row else {
+            "id": created["id"],
+            "email": created["email"],
+            "role": created["role"],
+            "workspace_id": created["workspace_id"],
+            "workspace_role": "owner",
+        }
+
     def issue_open_session(self, name: str = "open-access"):
         """Issue a session token for the first workspace user (open beta mode)."""
-        user = self.first_workspace_user()
+        user = self.ensure_open_access_user() if self.open_access_enabled() else self.first_workspace_user()
         if not user:
             return None
         token = self.identity.issue_session_secret(user["id"], user["workspace_id"], name=name)
