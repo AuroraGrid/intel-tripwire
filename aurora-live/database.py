@@ -27,6 +27,8 @@ class CursorResult:
 
     @property
     def rowcount(self) -> int:
+        if self.cursor is None:
+            return 0
         return self.cursor.rowcount
 
     def _row(self, row):
@@ -37,12 +39,18 @@ class CursorResult:
         return row
 
     def fetchone(self):
+        if self.cursor is None:
+            return None
         return self._row(self.cursor.fetchone())
 
     def fetchall(self):
+        if self.cursor is None:
+            return []
         return [self._row(row) for row in self.cursor.fetchall()]
 
     def __iter__(self):
+        if self.cursor is None:
+            return
         for row in self.cursor:
             yield self._row(row)
 
@@ -72,7 +80,18 @@ class Connection:
         except Exception as exc:
             if self.backend == "postgres":
                 import psycopg
+                # Concurrent CREATE TABLE IF NOT EXISTS races on pg_type; treat as success.
+                msg = str(exc).lower()
+                is_create = sql.lstrip().upper().startswith("CREATE")
+                if is_create and (
+                    "already exists" in msg
+                    or "pg_type_typname_nsp_index" in msg
+                    or "duplicate key value violates unique constraint" in msg
+                ):
+                    return CursorResult(None, self.backend)
                 if isinstance(exc, psycopg.IntegrityError):
+                    if is_create and ("already exists" in msg or "duplicate" in msg):
+                        return CursorResult(None, self.backend)
                     raise DatabaseIntegrityError(str(exc)) from exc
             raise
 
