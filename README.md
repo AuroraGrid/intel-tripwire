@@ -32,8 +32,8 @@ No capability is claimed as “live” until it has been properly verified.
 
 ## Related systems
 
-- [AURORA GRID](https://github.com/hr185882-creator/aurora-grid-grindwire-site) — the decision-intelligence framework behind this work
-- [RECORD LOCK](https://github.com/hr185882-creator/record-lock) — structured evidence and claim tracking
+- [AURORA GRID](https://github.com/AuroraGrid/aurora-grid-grindwire-site) — the decision-intelligence framework behind this work
+- [RECORD LOCK](https://github.com/AuroraGrid/record-lock) — structured evidence and claim tracking
 
 ---
 
