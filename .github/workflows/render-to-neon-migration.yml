@@ -1,0 +1,132 @@
+name: Migrate Render Postgres to Neon
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type MIGRATE_RENDER_TO_NEON to run the migration
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aurora-render-to-neon-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MIGRATION_CONFIRMATION: ${{ inputs.confirmation }}
+      SOURCE_DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+      TARGET_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+    steps:
+      - name: Create backup, restore, and verify
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+
+          if [[ "$MIGRATION_CONFIRMATION" != "MIGRATE_RENDER_TO_NEON" ]]; then
+            echo "::error::Confirmation text did not match; migration was not started"
+            exit 1
+          fi
+
+          require_postgres_url() {
+            local value="$1"
+            local name="$2"
+            if [[ -z "$value" ]]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+            case "$value" in
+              postgres://*|postgresql://*) ;;
+              *)
+                echo "::error::$name is not a PostgreSQL connection URL"
+                exit 1
+                ;;
+            esac
+          }
+
+          require_postgres_url "$SOURCE_DATABASE_URL" RENDER_DATABASE_URL
+          require_postgres_url "$TARGET_DATABASE_URL" NEON_DATABASE_URL
+          if [[ "$SOURCE_DATABASE_URL" == "$TARGET_DATABASE_URL" ]]; then
+            echo "::error::Source and target database URLs are identical"
+            exit 1
+          fi
+
+          migration_dir="$(mktemp -d "$RUNNER_TEMP/aurora-migrate.XXXXXX")"
+          cleanup() {
+            if [[ -n "${migration_dir:-}" && "$migration_dir" == "$RUNNER_TEMP"/aurora-migrate.* ]]; then
+              rm -rf -- "$migration_dir"
+            fi
+          }
+          trap cleanup EXIT
+
+          cat > "$migration_dir/counts.sql" <<'SQL'
+          SELECT format(
+            'SELECT %L || E''\t'' || count(*)::text FROM %I.%I;',
+            schemaname || '.' || tablename,
+            schemaname,
+            tablename
+          )
+          FROM pg_tables
+          WHERE schemaname = 'public'
+          ORDER BY tablename
+          \gexec
+          SQL
+
+          docker pull postgres:17-alpine >/dev/null
+
+          docker run --rm --env SOURCE_DATABASE_URL postgres:17-alpine \
+            sh -eu -c 'pg_isready --dbname "$SOURCE_DATABASE_URL" >/dev/null'
+          docker run --rm --env TARGET_DATABASE_URL postgres:17-alpine \
+            sh -eu -c 'pg_isready --dbname "$TARGET_DATABASE_URL" >/dev/null'
+
+          docker run --rm --env SOURCE_DATABASE_URL \
+            --volume "$migration_dir:/work" postgres:17-alpine \
+            sh -eu -c 'psql "$SOURCE_DATABASE_URL" -X -v ON_ERROR_STOP=1 -At -f /work/counts.sql > /work/source-counts.tsv'
+
+          source_table_count="$(wc -l < "$migration_dir/source-counts.tsv")"
+          if [[ "$source_table_count" -lt 1 ]]; then
+            echo "::error::Source database has no public tables"
+            exit 1
+          fi
+
+          docker run --rm --env SOURCE_DATABASE_URL \
+            --volume "$migration_dir:/work" postgres:17-alpine \
+            sh -eu -c 'pg_dump --format=custom --no-owner --no-privileges --file=/work/aurora-render.dump "$SOURCE_DATABASE_URL"'
+
+          docker run --rm --volume "$migration_dir:/work:ro" postgres:17-alpine \
+            pg_restore --list /work/aurora-render.dump >/dev/null
+
+          dump_sha="$(sha256sum "$migration_dir/aurora-render.dump" | awk '{print $1}')"
+          dump_bytes="$(stat -c '%s' "$migration_dir/aurora-render.dump")"
+
+          docker run --rm --env TARGET_DATABASE_URL \
+            --volume "$migration_dir:/work:ro" postgres:17-alpine \
+            sh -eu -c 'pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction --dbname "$TARGET_DATABASE_URL" /work/aurora-render.dump'
+
+          docker run --rm --env TARGET_DATABASE_URL \
+            --volume "$migration_dir:/work" postgres:17-alpine \
+            sh -eu -c 'psql "$TARGET_DATABASE_URL" -X -v ON_ERROR_STOP=1 -At -f /work/counts.sql > /work/target-counts.tsv'
+
+          if ! cmp -s "$migration_dir/source-counts.tsv" "$migration_dir/target-counts.tsv"; then
+            echo "::error::Source and target table row counts do not match"
+            exit 1
+          fi
+
+          {
+            echo "## Render to Neon migration"
+            echo
+            echo "- Backup SHA-256: \`$dump_sha\`"
+            echo "- Backup bytes: $dump_bytes"
+            echo "- Public tables verified: $source_table_count"
+            echo "- Table row-count comparison: exact match"
+            echo "- Source database: unchanged"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Migration completed and exact table row counts match."
