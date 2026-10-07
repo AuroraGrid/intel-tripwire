@@ -32,19 +32,22 @@ No capability is claimed as “live” until it has been properly verified.
 
 ## Related systems
 
-- [AURORA GRID](https://github.com/AuroraGrid/aurora-grid-grindwire-site) — the decision-intelligence framework behind this work
+- [KAHRELUM](https://kahrelum.com) — current canonical system and commercial entry point
+- [KAHRELUM OS](https://github.com/AuroraGrid/kahrelum-os) — public architecture and release record
 - [RECORD LOCK](https://github.com/AuroraGrid/record-lock) — structured evidence and claim tracking
+
+Older AURORA GRID / GrindWire surfaces are predecessor work, not the current offer.
 
 ---
 
 ## Creator
 
 **Hasan Raza Kazmi**  
-AI Product Builder & Strategic Intelligence Analyst  
+Founder, KAHRELUM  
 Pakistan · Fully remote
 
-Email: Grindwireproject@gmail.com  
-Portfolio: https://hasan-research-systems.vercel.app/
+Email: hasan@kahrelum.com  
+Canonical site: https://kahrelum.com
 
 ---
 
